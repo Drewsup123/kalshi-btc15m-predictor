@@ -31,16 +31,16 @@
 
 ### Task 1: Schema unwrap + book-complement quotes + lean/exits/risk
 
-**Tests then code.** Handle `{market:…}` (live official GET). Quotes: executable ask = max(market, 1−best opposite bid) when both valid; do **not** skip at 2¢ disagreement (use conservative price); skip only missing book/invalid/stale/near_close/closed. Exit bid = min(market bid, best same-side bid). Lean last-10. Exits precedence: target +8¢, trail +5/−3, 5 known opposite prints, −10¢ book. Risk reserves entry+exit fee.
+**Done.** Handle `{market:…}` (live official GET). Quotes: executable ask = max(market, 1−best opposite bid) when both valid; do **not** skip at 2¢ disagreement (use conservative price); skip only missing book/invalid/stale/near_close/closed. Exit bid = min(market bid, best same-side bid). Lean last-10. Exits precedence: target +8¢, trail +5/−3, 5 known opposite prints, −10¢ book. Risk reserves entry+exit fee.
 
 ### Task 2: Isolated ledger + tick orchestrator
 
-New `openexit.sqlite`. Idempotent ticks, restart, official settlement unwrap, no gap backfill, reduce size to depth (no leftover partial). Never touches baseline path.
+**Done.** New `openexit.sqlite`. Idempotent ticks, restart, official settlement unwrap, no gap backfill, reduce size to depth (no leftover partial). Never touches baseline path.
 
 ### Task 3: CLI run/watch/report + singleton + compare schema
 
-`run` = one tick. `watch` = 20s loop, lock file, PID, log. `report` = 15-min JSON+text both strategies; baseline missing → say so; `observed_at` now. `cycle`/`status` unchanged.
+**Done.** `run` = one tick. `watch` = 20s loop, lock file, PID, log. `report` = 15-min JSON+text both strategies; baseline missing → say so; `observed_at` now. `cycle`/`status` unchanged.
 
 ### Task 4: README, artifact, this-env watch, live smoke on temp dir
 
-Pack tar.gz without .git/secrets/ledgers. Start watch here on `/workspace/var/openexit` only. Do not claim parent deploy.
+**Done in this pass.** Pack tar.gz without .git/secrets/ledgers. Start watch here on `/workspace/var/openexit` only. Do not claim parent deploy.

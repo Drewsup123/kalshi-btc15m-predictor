@@ -1,7 +1,7 @@
 # Readonly diagnosis — KXBTC15M-26NOV051445-45
 
 **Pass:** no baseline code changes.  
-**Observed_at:** 2026-11-05T20:35:29Z (13:35:29 MST)
+**Observed_at:** 2026-11-05T20:43:28Z (second check; first was 2026-11-05T20:35:29Z)
 
 ## Official API (elections host, GET only)
 

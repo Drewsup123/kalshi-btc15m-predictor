@@ -1,145 +1,156 @@
 # KXBTC15M personal paper simulator
 
-Standalone **paper-only** Kalshi `KXBTC15M` (BTC 15-minute up/down) simulator. It reads **public production GETs**, writes an immutable prediction, then either books one **simulated** taker fill or records an explicit skip. Official `result` settles the ledger.
+Standalone **paper-only** Kalshi `KXBTC15M` (BTC 15-minute up/down) simulator. It reads **public production GETs** only. No order endpoints, credentials, auth, deposits, or live/demo trades.
 
-This is a **build**, not a deployed or scheduled runner. After you copy the artifact to the Linux computer that will run it, you create any 15-minute routine. This repo does not place live or demo orders, does not store credentials, and does not contact other systems.
+This tree ships **two isolated paper books**:
 
-## What a cycle does
+| Strategy | Model | Ledger file | Default state dir | Starter |
+|---|---|---|---|---|
+| Original baseline (frozen) | `exp-baseline-v1@2026-11-05` | `ledger.sqlite` | `~/.local/share/kxbtc15m-paper` or `KXBTC15M_STATE_DIR` | `cycle` / `status` |
+| Open-and-watch (second) | `exp-open-exit-v1@2026-11-05` | `openexit.sqlite` | `~/.local/share/kxbtc15m-paper-openexit` or `KXBTC15M_OPENEXIT_STATE_DIR` | `run` / `watch` / `report` |
 
-`cycle` runs this sequence once:
+The original baseline is **unchanged**. Do not reset, migrate, or monkeypatch it. The parent-reported book at `/workspace/personal-finance/kalshi-paper/state/ledger.sqlite` is **not** in this environment and is never created here.
 
-1. Settle any pending paper position from the official market `result` (`yes`/`no` only). Missing results stay pending.
-2. Discover the current open `KXBTC15M` market.
-3. Snapshot market quote + order book (raw JSON under the state dir).
-4. Validate quote quality (stale, thin, closed, inconsistent book, near close).
-5. Experimental signal: preregistered momentum on official Kalshi prints, else deterministic seeded control.
-6. Risk: $1 inclusive worst-case debit including fees, $5 Denver-day downside that counts pending and is **not** refilled by wins, one pending position, no martingale.
-7. Simulate a taker fill or write a skip reason.
-8. Print JSON and a readable scorecard.
-
-`status` is **read-only**. It will not create a ledger and will not settle or trade.
+This is a **build**. Copy the `tar.gz` artifact onto the Linux computer that will run it. The parent executor deploys the artifact; it does not clone this repo. Shipping the code does **not** mean the parent runtime is deployed.
 
 ## Limits (read these)
 
-- **Build ≠ deployed ≠ scheduled.** Shipping this code does not start a 15-minute job.
-- Cadence is however often you invoke `cycle`. It will not invent trades for missed 15-minute buckets.
-- Not minute-exact. Quote age, HTTP latency, and settlement lag after `close_time` are real.
-- Fills are simulated at a conservative executable ask. **No extra slippage tick** is added; that is optimistic versus live latency and is printed on every report.
-- Experimental baseline **claims no edge**. It does not invent calibrated probabilities, trained performance, or a 75% win rate. `entry_class=experimental` only. `model_gated` is unused.
-- Pending cost is locked capital, not realized profit. Equity is cash + pending at cost.
-- `https://external-api.kalshi.com/trade-api/v2` returned HTTP 403 on the parent machine (unknown cause). Default base is the documented alternate production host `https://api.elections.kalshi.com/trade-api/v2`. Do not circumvent 403s, challenges, or network policy.
+- Public GETs only. Default API base: `https://api.elections.kalshi.com/trade-api/v2`.
+- Fills are simulated at the **current** executable ask (entry) or bid (exit), including depth and official taker fees. Same-instant open/target fills are **not** guaranteed.
+- No past fills across poll gaps. A gap is logged; the next tick uses the live book only.
+- `observed_at` is the wall clock of that run, never the market `close_time`.
+- Official `result` still settles a pending row even if an early bid exit was impossible (no liquidity). Settlement is **not** a sale.
+- No invented confidence, win rate, or edge. Rules are frozen on the model version string.
+- `https://external-api.kalshi.com/trade-api/v2` returned HTTP 403 on the parent machine. Do not circumvent that.
 
-## Official fee source
+## Official fee
 
 Kalshi *Fee Schedule for July 2026 — 7.7.26 Update*:
 
-`https://kalshi.com/docs/kalshi-fee-schedule.pdf`
-
-Taker fee used here:
-
 `fees = round up(M × 0.07 × C × P × (1 − P))`
 
-Pinned excerpt: `docs/official/kalshi-fee-schedule-excerpt.md`. If that file is missing or does not contain the official formula, new entries **fail closed**. Live series `KXBTC15M` reported `fee_type=quadratic`, `fee_multiplier=1` in this build session.
+Pinned excerpt: `docs/official/kalshi-fee-schedule-excerpt.md`. Missing excerpt → new entries fail closed.
 
-## Install on the parent Linux computer
+## Open-and-watch rules (`exp-open-exit-v1@2026-11-05`)
 
-Python 3.11+ stdlib only. No `pip` packages required.
+Independent **$100** virtual ledger. Worst-case debit **$1 inclusive** (entry cost + entry fee + reserved exit fee at 50¢). Denver-day downside **$5**, counting pending reserve; wins do not refill. One pending. No martingale.
+
+1. Side = majority of last **10** official finalized `yes`/`no` with `close_time` before this `open_time`. Tie or fewer than 10 → skip.
+2. First look must be within **180s** of `open_time`. Later → `missed_open`.
+3. Enter at the conservative executable **ask** in **10–90¢**. Ask = max(market ask, `1 −` best opposite bid) when both are valid. Bid for exits = min(market bid, best same-side bid). Small or large ask/book disagreement uses the conservative price; it does **not** systematic-skip at 2¢ (that skip stays on the frozen baseline only).
+4. Exits, first match on a live tick: **+8¢** target; after a **+5¢** high, trail **3¢**; **−10¢** book stop; or **5** known-aggressor opposite prints. Ambiguous tape (`taker_outcome_side` missing or disagreeing with `taker_side`) is ignored. Quote exits still run.
+5. Else hold to official settlement.
+
+Public tape often has no reliable aggressor. Ambiguous prints never force an exit.
+
+## Install from the artifact (parent)
+
+Python 3.11+ stdlib only. No `pip`. Deploy the tarball, not a git clone.
 
 ```bash
-# from the self-contained artifact (preferred), not a git clone
-tar -tzf kxbtc15m-paper-v1.tar.gz | head
+# inspect, then extract
+tar -tzf kxbtc15m-paper-v2.tar.gz | head
 mkdir -p "$HOME/kxbtc15m-paper"
-tar -xzf kxbtc15m-paper-v1.tar.gz -C "$HOME/kxbtc15m-paper" --strip-components=1
+tar -xzf kxbtc15m-paper-v2.tar.gz -C "$HOME/kxbtc15m-paper" --strip-components=1
 cd "$HOME/kxbtc15m-paper"
-
-# persistent paper ledger — choose this path once and keep using it
-export KXBTC15M_STATE_DIR="$HOME/.local/share/kxbtc15m-paper"
-export KXBTC15M_API_BASE="https://api.elections.kalshi.com/trade-api/v2"
-mkdir -p "$KXBTC15M_STATE_DIR"
-# optional overlay (copy example, then leave it in the state dir)
-cp config.example.json "$KXBTC15M_STATE_DIR/config.json"
-
 chmod +x kxbtc15m
-./kxbtc15m status --state-dir "$KXBTC15M_STATE_DIR"
-./kxbtc15m cycle --state-dir "$KXBTC15M_STATE_DIR"
+
+# --- original baseline (leave the existing ledger alone) ---
+export KXBTC15M_STATE_DIR="$HOME/.local/share/kxbtc15m-paper"   # or the parent path you already use
+# Parent-reported book (do not reset): /workspace/personal-finance/kalshi-paper/state/ledger.sqlite
+
+# --- second strategy (new isolated book) ---
+export KXBTC15M_OPENEXIT_STATE_DIR="$HOME/.local/share/kxbtc15m-paper-openexit"
+export KXBTC15M_API_BASE="https://api.elections.kalshi.com/trade-api/v2"
+mkdir -p "$KXBTC15M_OPENEXIT_STATE_DIR"
+
+./kxbtc15m run --state-dir "$KXBTC15M_OPENEXIT_STATE_DIR"
+./kxbtc15m watch --state-dir "$KXBTC15M_OPENEXIT_STATE_DIR"    # 20s public GET loop; singleton
+./kxbtc15m report --state-dir "$KXBTC15M_OPENEXIT_STATE_DIR"   # 15-minute compare; read-only on baseline
+./kxbtc15m status --state-dir "$KXBTC15M_STATE_DIR"            # baseline scorecard only
 ```
 
-Equivalent:
+`watch` and `report` refuse any state dir under `personal-finance/kalshi-paper` or a directory that already holds a baseline `ledger.sqlite`.
 
-```bash
-PYTHONPATH=src python3 -m kxbtc15m cycle --state-dir "$KXBTC15M_STATE_DIR"
-PYTHONPATH=src python3 -m kxbtc15m status --state-dir "$KXBTC15M_STATE_DIR"
-```
-
-You own any cron/`systemd` timer. Example (not installed by this build):
+You own cron/`systemd`. Example (not installed by this build):
 
 ```cron
-# every 15 minutes, plus a small delay for books to appear
-3,18,33,48 * * * * KXBTC15M_STATE_DIR=$HOME/.local/share/kxbtc15m-paper $HOME/kxbtc15m-paper/kxbtc15m cycle >>$HOME/.local/share/kxbtc15m-paper/cycle.log 2>&1
+# open-exit 20s runner is a long-lived process, not cron:
+# systemd: ExecStart=/home/YOU/kxbtc15m-paper/kxbtc15m watch --state-dir /home/YOU/.local/share/kxbtc15m-paper-openexit
+
+# 15-minute compare (does not create the baseline ledger)
+3,18,33,48 * * * * KXBTC15M_OPENEXIT_STATE_DIR=$HOME/.local/share/kxbtc15m-paper-openexit $HOME/kxbtc15m-paper/kxbtc15m report --state-dir $HOME/.local/share/kxbtc15m-paper-openexit --baseline-state-dir $HOME/.local/share/kxbtc15m-paper >>$HOME/.local/share/kxbtc15m-paper-openexit/report.log 2>&1
 ```
+
+## State mapping, PID, log, lock
+
+| Path | Who writes it | Purpose |
+|---|---|---|
+| `$KXBTC15M_STATE_DIR/ledger.sqlite` | baseline `cycle` only | Original paper book. Do not delete. |
+| `$KXBTC15M_STATE_DIR/snapshots/*.json` | baseline `cycle` | Raw public snapshots. |
+| `$KXBTC15M_OPENEXIT_STATE_DIR/openexit.sqlite` | `run` / `watch` | Isolated $100 open-exit book. Survives restart. |
+| `$KXBTC15M_OPENEXIT_STATE_DIR/watch.lock` | `watch` | `fcntl` exclusive lock. Second `watch` exits. |
+| `$KXBTC15M_OPENEXIT_STATE_DIR/watch.pid` | `watch` | PID of the holder. |
+| `$KXBTC15M_OPENEXIT_STATE_DIR/watch.log` | `watch` | One line per 20s tick. |
+| `$KXBTC15M_OPENEXIT_STATE_DIR/report.log` | your `report` cron | 15-minute compare output. |
+
+Restart: stop the process (lock releases on exit). Start `watch` again against the **same** `--state-dir`. Pending rows, cash, and skips reload from `openexit.sqlite`. No backfilled fills for the downtime gap.
+
+This cloud workspace, if a watch is started here, uses `/workspace/var/openexit` only. That is **not** the parent runtime.
 
 ## CLI
 
 ```text
-kxbtc15m cycle [--state-dir DIR] [--api-base URL] [--model-version V]
+kxbtc15m cycle  [--state-dir DIR] [--api-base URL] [--model-version V]
 kxbtc15m status [--state-dir DIR]
+kxbtc15m run    [--state-dir DIR] [--api-base URL]
+kxbtc15m watch  [--state-dir DIR] [--api-base URL] [--interval 20]
+kxbtc15m report [--state-dir DIR] [--baseline-state-dir DIR]
 ```
 
 | Input | Env | Default |
 |---|---|---|
-| `--state-dir` | `KXBTC15M_STATE_DIR` | `~/.local/share/kxbtc15m-paper` |
+| baseline `--state-dir` | `KXBTC15M_STATE_DIR` | `~/.local/share/kxbtc15m-paper` |
+| open-exit `--state-dir` | `KXBTC15M_OPENEXIT_STATE_DIR` | `~/.local/share/kxbtc15m-paper-openexit` |
 | `--api-base` | `KXBTC15M_API_BASE` | `https://api.elections.kalshi.com/trade-api/v2` |
-| `--model-version` | overlay `config.json` | `exp-baseline-v1@2026-11-05` |
+| report `--baseline-state-dir` | `KXBTC15M_STATE_DIR` | parent path if present, else that env |
 
-JSON Schema: `config.schema.json`. Overlay file, if used, is `$STATE_DIR/config.json`. There is no secrets schema.
-
-State files: `ledger.sqlite`, `snapshots/*.json`.
-
-## Experimental baseline
-
-`exp-baseline-v1@2026-11-05`
-
-1. Momentum using official Kalshi prints only (prior finalized `expiration_value − floor_strike`, CF Benchmarks BRTI). Frozen threshold **$20**. Continuation: up → YES, down → NO.
-2. If the move is below threshold or prints are missing: deterministic `sha256(seed:ticker)` control. Default seed `20261105`.
-
-`p_hat` is always null. Predictions are append-only and are not rewritten at settlement.
-
-## Risk defaults
-
-| Control | Value |
-|---|---|
-| Starting cash | $100.00 |
-| Max worst-case debit / pick (fees in) | $1.00 inclusive |
-| Daily downside (Denver) | $5.00; pending counts; wins do not refill |
-| Pending positions | 1 |
-| Martingale | forbidden |
-| Stale quote | skip if snapshot older than 30s |
-| Near close | skip if < 60s to `close_time` |
+`report` never creates a missing baseline `ledger.sqlite`. `observed_at` is the report clock.
 
 ## Tests
-
-From the repo or extracted artifact:
 
 ```bash
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
 
-Unit fixtures live under `tests/fixtures/` and write only to temp dirs. They never open the intended starting ledger. Live smoke (`tests/test_live_smoke.py`) uses public GETs and a disposable temp ledger; set `KXBTC15M_SKIP_LIVE=1` to skip it.
+Fixtures write only to temp dirs. Live smokes (`tests/test_live_smoke.py`, `tests/test_openexit_live.py`) use public GETs and disposable temp state; set `KXBTC15M_SKIP_LIVE=1` to skip.
 
-Covered: fee/cents rounding, inclusive max debit, cash vs pending equity, pending reserve daily limit, duplicate cycle/market/settlement, missing result stays pending, restart persistence, no lookahead, API errors, CLI isolation.
+Covered: official fees and reserved exit leftover; $1 / $5 / inventory / cash; deterministic timestamps (`observed_at` ≠ `close_time`); live-tape ambiguity ignored; idempotent ticks and restart; invalid quotes and first-look / open timing; target / trail / stop / tape precedence; quantity capped by book depth; process singleton; baseline file hashes unchanged; report isolation.
 
 ## Layout
 
 ```
-src/kxbtc15m/     # stdlib package
-tests/            # unittest + fixtures
-docs/superpowers/ # approved spec + plan
-docs/official/    # fee excerpt (required at runtime)
+src/kxbtc15m/            # stdlib package
+src/kxbtc15m/openexit/   # second strategy (does not import cycle)
+tests/
+docs/superpowers/        # approved specs + plans
+docs/official/           # fee excerpt (required)
 config.schema.json
 config.example.json
-kxbtc15m          # launcher
+kxbtc15m                 # launcher
 ```
+
+## Readonly note on the parent pending ticker
+
+`KXBTC15M-26NOV051445-45` (parent-reported pending NO×15, 99¢ incl. 7¢, ~12:39 MST) was checked on the official public GET. Envelope is `{market:{…}}`. Inner `status=finalized`, `result=yes`, `settlement_ts=2026-11-05T19:45:02.127035Z`. That is not a live settlement delay at the check time (~50 minutes after close).
+
+Labeled hypotheses only (not a claimed parent-runtime root cause, and **no baseline code change** this pass):
+
+- **H-envelope:** a reader of top-level `result` would miss the wrapped YES.
+- **H-inconsistent_book:** baseline skips when market ask and `1−opposite bid` differ by >2¢; live books in this series often sit near that edge.
+
+If that parent row is still pending after 19:45Z, official YES would make the paper NO a realized loss **once the parent process actually reads `result`**.
 
 ## Disclaimer
 
-Simulated paper results only. Not a licensed advisor. Past paper P&L is not future results.
+Simulated paper results only. Not a licensed advisor. Past paper P&L is not future results. No calibrated edge.

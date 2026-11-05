@@ -1,17 +1,27 @@
-"""Paper-only CLI: cycle (mutate) and status (read-only)."""
+"""Paper-only CLI: baseline cycle/status plus isolated open-exit run/watch/report."""
 
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import sys
 from pathlib import Path
 
 from kxbtc15m.client import PublicClient
 from kxbtc15m.clock import utc_now
-from kxbtc15m.config import load_config
+from kxbtc15m.config import DEFAULT_API_BASE, load_config
 from kxbtc15m.cycle import run_cycle
 from kxbtc15m.ledger import Ledger
+from kxbtc15m.openexit.compare import build_compare, format_compare_text
+from kxbtc15m.openexit.ledger import OpenExitLedger
+from kxbtc15m.openexit.paths import assert_safe_openexit_dir
+from kxbtc15m.openexit.tick import run_tick
+from kxbtc15m.openexit.watch import watch_forever
 from kxbtc15m.report import Report, build_report, format_json, format_text
+
+DEFAULT_OPENEXIT_DIR = Path.home() / ".local" / "share" / "kxbtc15m-paper-openexit"
+PARENT_BASELINE_LEDGER = Path("/workspace/personal-finance/kalshi-paper/state/ledger.sqlite")
 
 
 def _common() -> argparse.ArgumentParser:
@@ -30,8 +40,13 @@ def _parser() -> argparse.ArgumentParser:
         parents=[common],
     )
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("cycle", help="Settle, discover, snapshot, signal, risk, simulate.", parents=[common])
-    sub.add_parser("status", help="Read-only ledger scorecard.", parents=[common])
+    sub.add_parser("cycle", help="Baseline only: settle/discover/snapshot/signal/risk/simulate.", parents=[common])
+    sub.add_parser("status", help="Baseline only: read-only scorecard.", parents=[common])
+    sub.add_parser("run", help="Open-exit: one 20s-style tick on the isolated ledger.", parents=[common])
+    watch = sub.add_parser("watch", help="Open-exit: 20s public GET loop (singleton lock).", parents=[common])
+    watch.add_argument("--interval", type=int, default=20)
+    report = sub.add_parser("report", help="15-minute compare (read-only). Does not create the baseline ledger.", parents=[common])
+    report.add_argument("--baseline-state-dir", help="Directory that already holds the original ledger.sqlite")
     return parser
 
 
@@ -64,8 +79,53 @@ def json_no_ledger() -> str:
     return '{\n  "action": "status",\n  "skip_reason": "no_ledger"\n}'
 
 
+def _openexit_dir(args) -> Path:
+    chosen = args.state_dir or os.environ.get("KXBTC15M_OPENEXIT_STATE_DIR") or DEFAULT_OPENEXIT_DIR
+    return assert_safe_openexit_dir(chosen)
+
+
+def _run_openexit(args) -> int:
+    state = _openexit_dir(args)
+    state.mkdir(parents=True, exist_ok=True)
+    ledger = OpenExitLedger(state / "openexit.sqlite")
+    client = PublicClient(args.api_base or os.environ.get("KXBTC15M_API_BASE") or DEFAULT_API_BASE)
+    try:
+        result = run_tick(client, ledger, utc_now())
+        sys.stdout.write(json.dumps(result, indent=2, sort_keys=True))
+        sys.stdout.write("\n")
+        return 0
+    finally:
+        ledger.close()
+
+
+def _report(args) -> int:
+    baseline_dir = Path(
+        args.baseline_state_dir
+        or os.environ.get("KXBTC15M_STATE_DIR")
+        or PARENT_BASELINE_LEDGER.parent
+    ).expanduser()
+    baseline_ledger = baseline_dir / "ledger.sqlite"
+    openexit_dir = _openexit_dir(args)
+    payload = build_compare(baseline_ledger, openexit_dir)
+    sys.stdout.write(json.dumps(payload, indent=2, sort_keys=True))
+    sys.stdout.write("\n\n")
+    sys.stdout.write(format_compare_text(payload))
+    sys.stdout.write("\n")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.command == "run":
+        return _run_openexit(args)
+    if args.command == "watch":
+        return watch_forever(
+            _openexit_dir(args),
+            api_base=args.api_base or os.environ.get("KXBTC15M_API_BASE") or DEFAULT_API_BASE,
+            interval=getattr(args, "interval", 20),
+        )
+    if args.command == "report":
+        return _report(args)
     cfg = load_config(
         state_dir=args.state_dir,
         api_base=args.api_base,
