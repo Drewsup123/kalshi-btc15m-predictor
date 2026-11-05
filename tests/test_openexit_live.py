@@ -13,8 +13,8 @@ from kxbtc15m.config import DEFAULT_API_BASE
 from kxbtc15m.openexit.ledger import OpenExitLedger
 from kxbtc15m.openexit.tick import run_tick
 from kxbtc15m.schema import unwrap_market
+from tests.isolation import PARENT_LEDGER, assert_parent_ledger_untouched, snapshot_parent_ledger
 
-PARENT = Path("/workspace/personal-finance/kalshi-paper/state/ledger.sqlite")
 INTENDED = Path.home() / ".local" / "share" / "kxbtc15m-paper-openexit" / "openexit.sqlite"
 
 
@@ -33,9 +33,8 @@ class OpenExitLiveSmokeTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as raw_dir:
             state = Path(raw_dir)
-            existed_parent = PARENT.exists()
+            before = snapshot_parent_ledger()
             existed_intended = INTENDED.exists()
-            parent_mtime = PARENT.stat().st_mtime if existed_parent else None
             ledger = OpenExitLedger(state / "openexit.sqlite")
             try:
                 out = run_tick(client, ledger, datetime.now(timezone.utc))
@@ -44,10 +43,9 @@ class OpenExitLiveSmokeTests(unittest.TestCase):
             self.assertIn(out["action"], ("entry", "skip", "idle", "hold", "already_done", "official_settlement"))
             self.assertTrue((state / "openexit.sqlite").exists())
             self.assertFalse((state / "ledger.sqlite").exists())
-            self.assertEqual(PARENT.exists(), existed_parent)
+            self.assertNotEqual(state / "openexit.sqlite", PARENT_LEDGER)
             self.assertEqual(INTENDED.exists(), existed_intended)
-            if existed_parent:
-                self.assertEqual(PARENT.stat().st_mtime, parent_mtime)
+            assert_parent_ledger_untouched(self, before)
             self.assertNotEqual(out["observed_at"], market.get("close_time"))
 
 

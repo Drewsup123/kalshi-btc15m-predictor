@@ -8,15 +8,16 @@ from pathlib import Path
 from unittest.mock import patch
 
 from kxbtc15m.cli import main
+from tests.isolation import assert_parent_ledger_untouched, snapshot_parent_ledger
 from tests.test_openexit_tick import Fake, _book, _hist, _open
 
 
 NOW = datetime(2026, 11, 5, 19, 31, 0, tzinfo=timezone.utc)
-PARENT = Path("/workspace/personal-finance/kalshi-paper/state/ledger.sqlite")
 
 
 class OpenExitCliTests(unittest.TestCase):
     def test_run_uses_isolated_ledger_not_parent(self):
+        before = snapshot_parent_ledger()
         with tempfile.TemporaryDirectory() as raw:
             state = Path(raw)
             buf = io.StringIO()
@@ -31,12 +32,13 @@ class OpenExitCliTests(unittest.TestCase):
             self.assertEqual(payload["action"], "entry")
             self.assertTrue((state / "openexit.sqlite").exists())
             self.assertFalse((state / "ledger.sqlite").exists())
-            self.assertFalse(PARENT.exists())
+        assert_parent_ledger_untouched(self, before)
 
     def test_run_refuses_parent_state_dir(self):
+        before = snapshot_parent_ledger()
         with self.assertRaises(RuntimeError):
             main(["run", "--state-dir", "/workspace/personal-finance/kalshi-paper/state"])
-        self.assertFalse(PARENT.exists())
+        assert_parent_ledger_untouched(self, before)
 
 
 if __name__ == "__main__":

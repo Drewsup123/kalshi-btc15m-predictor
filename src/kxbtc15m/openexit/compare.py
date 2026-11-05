@@ -112,7 +112,11 @@ def build_compare(baseline_ledger: Path, openexit_dir: Path) -> dict:
                     "evidence": "Baseline skips when market ask and 1-opposite bid differ by >2c. Open-exit uses conservative complements instead. Baseline code was not changed this pass.",
                 },
             ],
-            "parent_pending_note": "This environment does not contain /workspace/personal-finance/kalshi-paper/state/ledger.sqlite. That book was not opened, copied, or reset.",
+            "parent_pending_note": (
+                "baseline ledger path was opened read-only for this report; it was not reset or rewritten"
+                if baseline_ledger.is_file()
+                else "baseline ledger path was not present; this report did not create one"
+            ),
         },
         "disclaimer": "Simulated paper only. No calibrated edge. Settlement is not a sale.",
     }

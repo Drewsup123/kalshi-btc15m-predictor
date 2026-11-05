@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from kxbtc15m.cli import main
 from kxbtc15m.client import FeedError, PublicClient
+from tests.isolation import assert_parent_ledger_untouched, snapshot_parent_ledger
 
 
 class CliTests(unittest.TestCase):
@@ -70,6 +71,7 @@ class CliTests(unittest.TestCase):
         from tests.test_settle_unwrap import OFFICIAL_NESTED_YES, TICKER
 
         later = datetime(2026, 11, 5, 20, 40, 0, tzinfo=timezone.utc)
+        before = snapshot_parent_ledger()
         with tempfile.TemporaryDirectory() as raw:
             state = Path(raw)
             ledger = Ledger(state / "ledger.sqlite")
@@ -102,7 +104,8 @@ class CliTests(unittest.TestCase):
             self.assertEqual(payload["software_version"], "2.1.0")
             self.assertEqual(payload["observed_at"], "2026-11-05T20:40:00Z")
             self.assertNotEqual(payload["observed_at"], "2026-11-05T19:45:00Z")
-            self.assertFalse(Path("/workspace/personal-finance/kalshi-paper/state/ledger.sqlite").exists())
+            self.assertNotEqual(state / "ledger.sqlite", Path("/workspace/personal-finance/kalshi-paper/state/ledger.sqlite"))
+        assert_parent_ledger_untouched(self, before)
 
     def test_public_client_rejects_order_paths(self):
         client = PublicClient("https://api.elections.kalshi.com/trade-api/v2")

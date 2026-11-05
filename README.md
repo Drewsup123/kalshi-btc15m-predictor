@@ -9,7 +9,7 @@ This tree ships **two isolated paper books**:
 | Original baseline (frozen) | `exp-baseline-v1@2026-11-05` | `ledger.sqlite` | `~/.local/share/kxbtc15m-paper` or `KXBTC15M_STATE_DIR` | `cycle` / `status` |
 | Open-and-watch (second) | `exp-open-exit-v1@2026-11-05` | `openexit.sqlite` | `~/.local/share/kxbtc15m-paper-openexit` or `KXBTC15M_OPENEXIT_STATE_DIR` | `run` / `watch` / `report` |
 
-Baseline **rules** and `model_version` (`exp-baseline-v1@2026-11-05`) are unchanged. Software **2.1.0** is a parser-only settlement unwrap so official `GET /markets/{ticker}` `{market:{result,status}}` can close a pending row. Do not reset, migrate, or rewrite the original ledger. The parent-reported book at `/workspace/personal-finance/kalshi-paper/state/ledger.sqlite` is **not** in this environment and is never created here.
+Baseline **rules** and `model_version` (`exp-baseline-v1@2026-11-05`) are unchanged. Software **2.1.0** is a parser-only settlement unwrap so official `GET /markets/{ticker}` `{market:{result,status}}` can close a pending row. Do not reset, migrate, or rewrite the original ledger. The parent-reported book at `/workspace/personal-finance/kalshi-paper/state/ledger.sqlite` may exist on the parent machine. Tests must not require it to be absent; they use isolated fixtures and only fingerprint that path read-only. Never reset or rewrite it.
 
 This is a **build**. Copy the `tar.gz` artifact onto the Linux computer that will run it. The parent executor deploys the artifact; it does not clone this repo. Shipping the code does **not** mean the parent runtime is deployed.
 

@@ -14,9 +14,9 @@ from kxbtc15m.ledger import Ledger
 from kxbtc15m.report import format_json
 from kxbtc15m.schema import unwrap_market
 from kxbtc15m.signal import MODEL_VERSION
+from tests.isolation import assert_parent_ledger_untouched, snapshot_parent_ledger
 from tests.test_cycle import NOW, _cfg, _client
 
-PARENT = Path("/workspace/personal-finance/kalshi-paper/state/ledger.sqlite")
 TICKER = "KXBTC15M-26NOV051445-45"
 
 # Exact official envelope observed 2026-11-05 on elections host (fields required for settle).
@@ -41,13 +41,13 @@ class SettleUnwrapTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.state = Path(self.tmp.name)
         self.ledger = None
-        self.assertFalse(PARENT.exists())
+        self._parent_before = snapshot_parent_ledger()
 
     def tearDown(self):
         if self.ledger is not None:
             self.ledger.close()
         self.tmp.cleanup()
-        self.assertFalse(PARENT.exists())
+        assert_parent_ledger_untouched(self, self._parent_before)
 
     def _pending_no_99(self) -> Ledger:
         ledger = Ledger(self.state / "ledger.sqlite")
@@ -93,7 +93,7 @@ class SettleUnwrapTests(unittest.TestCase):
         self.assertNotEqual(payload["observed_at"], "2026-11-05T19:45:00Z")
         self.assertIn("observed_at_denver", payload)
         self.assertNotEqual(payload["observed_at_denver"], payload["observed_at"])
-        self.assertFalse(PARENT.exists())
+        self.assertNotEqual(self.state / "ledger.sqlite", Path("/workspace/personal-finance/kalshi-paper/state/ledger.sqlite"))
 
     def test_double_settle_is_idempotent(self):
         ledger = self._pending_no_99()
