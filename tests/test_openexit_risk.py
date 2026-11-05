@@ -12,16 +12,20 @@ class OpenExitRiskTests(unittest.TestCase):
         d = size_entry(Decimal("0.40"), Decimal("20"), 10000, 0, 0, CFG)
         self.assertTrue(d.ok)
         self.assertGreater(d.reserve_cents, d.entry_debit_cents)
-        self.assertLessEqual(d.reserve_cents, 100)
+        self.assertLessEqual(d.reserve_cents, 1000)
 
-    def test_one_dollar_inclusive_blocks_oversize(self):
+    def test_ten_dollar_inclusive_blocks_oversize(self):
         d = size_entry(Decimal("0.99"), Decimal("20"), 10000, 0, 0, CFG)
-        self.assertFalse(d.ok)
-        self.assertEqual(d.skip_reason, "per_pick_cap")
+        self.assertTrue(d.ok)
+        self.assertLessEqual(d.reserve_cents, 1000)
+        over = size_entry(Decimal("0.99"), Decimal("20"), 10000, 0, 0, OpenExitRisk(max_debit_cents=100))
+        self.assertFalse(over.ok)
+        self.assertEqual(over.skip_reason, "per_pick_cap")
 
-    def test_daily_pending_aware_no_gain_refill(self):
+    def test_no_daily_cap_in_default_regime(self):
         d = size_entry(Decimal("0.40"), Decimal("20"), 12000, 500, 0, CFG)
-        self.assertEqual(d.skip_reason, "daily_downside_cap")
+        self.assertTrue(d.ok)
+        self.assertIsNone(d.skip_reason)
 
     def test_reduces_to_book_depth_no_leftover_partial(self):
         d = size_entry(Decimal("0.20"), Decimal("2"), 10000, 0, 0, CFG)

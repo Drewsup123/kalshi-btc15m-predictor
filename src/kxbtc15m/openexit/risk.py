@@ -1,4 +1,4 @@
-"""Size so entry debit + reserved exit fee stays <= $1 inclusive."""
+"""Size so entry debit + reserved exit fee stays <= $10 inclusive. No daily cap."""
 
 from __future__ import annotations
 
@@ -11,8 +11,8 @@ from kxbtc15m.money import dollars_to_cents_ceil
 
 @dataclass(frozen=True)
 class OpenExitRisk:
-    max_debit_cents: int = 100
-    max_daily_downside_cents: int = 500
+    max_debit_cents: int = 1000
+    max_daily_downside_cents: int | None = None
     max_pending: int = 1
 
 
@@ -64,9 +64,10 @@ def size_entry(
         if reserve > cash_cents:
             first = first or "insufficient_cash"
             break
-        if used_downside_cents + reserve > cfg.max_daily_downside_cents:
-            first = first or "daily_downside_cap"
-            break
+        if cfg.max_daily_downside_cents is not None:
+            if used_downside_cents + reserve > cfg.max_daily_downside_cents:
+                first = first or "daily_downside_cap"
+                break
         best = SizeDecision(
             True,
             None,

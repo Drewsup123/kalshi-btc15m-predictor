@@ -8,8 +8,9 @@ from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 
-from kxbtc15m.clock import denver_day
+from kxbtc15m.clock import denver_day, iso_utc, utc_now
 from kxbtc15m.fees import taker_fee_cents
+from kxbtc15m.openexit import MODEL_VERSION, PRIOR_MODEL_VERSION, RISK_REGIME
 from kxbtc15m.openexit.paths import assert_safe_openexit_dir
 
 SCHEMA = """
@@ -71,12 +72,52 @@ class OpenExitLedger:
         self.conn = sqlite3.connect(self.path)
         self.conn.row_factory = sqlite3.Row
         self.conn.executescript(SCHEMA)
-        if self._meta("cash_cents") is None:
+        existed = self._meta("cash_cents") is not None
+        if not existed:
             self._set("starting_cash_cents", str(starting_cash_cents))
             self._set("cash_cents", str(starting_cash_cents))
             self._set("peak_equity_cents", str(starting_cash_cents))
             self._set("max_drawdown_cents", "0")
             self.conn.commit()
+        self._migrate_risk_regime(existed)
+
+    def _migrate_risk_regime(self, existed: bool) -> None:
+        if self._meta("risk_regime") == RISK_REGIME:
+            if self._meta("model_version") != MODEL_VERSION:
+                self._set("model_version", MODEL_VERSION)
+                self.conn.commit()
+            return
+        prior = self._meta("model_version") or (PRIOR_MODEL_VERSION if existed else MODEL_VERSION)
+        self._set("prior_model_version", prior)
+        self._set("model_version", MODEL_VERSION)
+        self._set("risk_regime", RISK_REGIME)
+        self._set("risk_max_debit_cents", "1000")
+        self._set("risk_daily_downside", "none")
+        if existed:
+            self._log(
+                iso_utc(utc_now()),
+                "risk_migration",
+                {
+                    "from": prior,
+                    "to": MODEL_VERSION,
+                    "regime": RISK_REGIME,
+                    "max_debit_cents": 1000,
+                    "daily_downside": "none",
+                    "cash_cents": self.cash_cents(),
+                    "realized_pnl_cents": self.realized_pnl_cents(),
+                    "pending_count": self.pending_count(),
+                },
+            )
+        self.conn.commit()
+
+    def risk_regime(self) -> str:
+        return self._meta("risk_regime") or RISK_REGIME
+
+    def model_version(self) -> str:
+        return self._meta("model_version") or MODEL_VERSION
+
+    def prior_model_version(self) -> str | None:
+        return self._meta("prior_model_version")
 
     def close(self) -> None:
         self.conn.close()

@@ -7,9 +7,9 @@ This tree ships **two isolated paper books**:
 | Strategy | Model | Ledger file | Default state dir | Starter |
 |---|---|---|---|---|
 | Original baseline (frozen) | `exp-baseline-v1@2026-11-05` | `ledger.sqlite` | `~/.local/share/kxbtc15m-paper` or `KXBTC15M_STATE_DIR` | `cycle` / `status` |
-| Open-and-watch (second) | `exp-open-exit-v1@2026-11-05` | `openexit.sqlite` | `~/.local/share/kxbtc15m-paper-openexit` or `KXBTC15M_OPENEXIT_STATE_DIR` | `run` / `watch` / `report` |
+| Open-and-watch (second) | `exp-open-exit-v1-risk10@2026-11-05` (prior rows: `exp-open-exit-v1@2026-11-05`) | `openexit.sqlite` | `~/.local/share/kxbtc15m-paper-openexit` or `KXBTC15M_OPENEXIT_STATE_DIR` | `run` / `watch` / `report` |
 
-Baseline **rules** and `model_version` (`exp-baseline-v1@2026-11-05`) are unchanged. Software **2.1.0** is a parser-only settlement unwrap so official `GET /markets/{ticker}` `{market:{result,status}}` can close a pending row. Do not reset, migrate, or rewrite the original ledger. The parent-reported book at `/workspace/personal-finance/kalshi-paper/state/ledger.sqlite` may exist on the parent machine. Tests must not require it to be absent; they use isolated fixtures and only fingerprint that path read-only. Never reset or rewrite it.
+Baseline **rules** and `model_version` (`exp-baseline-v1@2026-11-05`) stay at **$1 / $5**. Software **2.2.0** is the open-exit risk-regime change plus the earlier settlement unwrap. Opening an existing `openexit.sqlite` stamps `risk_regime=openexit-risk10-nocap@2026-11-05` and does **not** reset cash or realized P&L. Do not reset, migrate, or rewrite the original ledger. The parent-reported book at `/workspace/personal-finance/kalshi-paper/state/ledger.sqlite` may exist on the parent machine. Tests must not require it to be absent; they use isolated fixtures and only fingerprint that path read-only. Never reset or rewrite it.
 
 This is a **build**. Copy the `tar.gz` artifact onto the Linux computer that will run it. The parent executor deploys the artifact; it does not clone this repo. Shipping the code does **not** mean the parent runtime is deployed.
 
@@ -40,6 +40,39 @@ A wrapped official YES on a pending paper NO of 99¢ inclusive realizes **−$0.
 
 Open-exit watchers already on v2 keep using their own tree and `openexit.sqlite`. This v2.1 tree still contains `run`/`watch`/`report`.
 
+## v2.2 open-exit risk ($10, no daily cap)
+
+Second book only. Entry debit + reserved exit fee ≤ **$10**. **No** Denver-day downside cap. Still one pending. Still bounded by cash on the existing virtual book (no borrow, reset, or top-up). Lean / first-look / tape / exits unchanged.
+
+**Preserve history.** Parent-reported open-exit book at restart should stay **cash 9965¢ / realized −35¢ / flat**. Baseline stays **9901¢ / realized −99¢**. Migration writes meta + one `risk_migration` event; it does not rewrite settlements.
+
+Artifact: `kxbtc15m-paper-v2.2.tar.gz`  
+SHA256: `docs/artifact-v2.2.sha256`
+
+Parent replaces the **singleton watcher** (do not start a second). Example — parent runs this, not this cloud session:
+
+```bash
+mkdir -p /workspace/personal-finance/kalshi-paper/app-v2.2
+tar -xzf kxbtc15m-paper-v2.2.tar.gz -C /workspace/personal-finance/kalshi-paper/app-v2.2 --strip-components=1
+chmod +x /workspace/personal-finance/kalshi-paper/app-v2.2/kxbtc15m
+
+# 1) confirm the live book (read-only)
+/workspace/personal-finance/kalshi-paper/app-v2.2/kxbtc15m report \
+  --state-dir /workspace/var/openexit \
+  --baseline-state-dir /workspace/personal-finance/kalshi-paper/state
+
+# 2) stop the current singleton only (exact PID from watch.pid, e.g. 2477494)
+kill -TERM "$(cat /workspace/var/openexit/watch.pid)"
+# wait until watch.lock is released
+
+# 3) start exactly one new watcher on the SAME state dir (migrates on open)
+/workspace/personal-finance/kalshi-paper/app-v2.2/kxbtc15m watch \
+  --state-dir /workspace/var/openexit \
+  --api-base https://api.elections.kalshi.com/trade-api/v2 --interval 20
+```
+
+`report` after restart should show `model_version=exp-open-exit-v1-risk10@2026-11-05`, `risk_regime=openexit-risk10-nocap@2026-11-05`, cash still 9965 if no new fill, realized still −35. Baseline `cycle` remains the v2.1 executable + $1/$5 rules.
+
 ## Limits (read these)
 
 - Public GETs only. Default API base: `https://api.elections.kalshi.com/trade-api/v2`.
@@ -58,9 +91,9 @@ Kalshi *Fee Schedule for July 2026 — 7.7.26 Update*:
 
 Pinned excerpt: `docs/official/kalshi-fee-schedule-excerpt.md`. Missing excerpt → new entries fail closed.
 
-## Open-and-watch rules (`exp-open-exit-v1@2026-11-05`)
+## Open-and-watch rules (`exp-open-exit-v1-risk10@2026-11-05`)
 
-Independent **$100** virtual ledger. Worst-case debit **$1 inclusive** (entry cost + entry fee + reserved exit fee at 50¢). Denver-day downside **$5**, counting pending reserve; wins do not refill. One pending. No martingale.
+Independent **$100** starting virtual ledger (existing books keep their cash). Worst-case debit **$10 inclusive** (entry cost + entry fee + reserved exit fee at 50¢). **No** Denver-day downside cap. Bounded by cash on the book. One pending. No martingale. No borrow / reset / top-up.
 
 1. Side = majority of last **10** official finalized `yes`/`no` with `close_time` before this `open_time`. Tie or fewer than 10 → skip.
 2. First look must be within **180s** of `open_time`. Later → `missed_open`.

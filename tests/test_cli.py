@@ -101,7 +101,7 @@ class CliTests(unittest.TestCase):
             self.assertGreaterEqual(payload["settled_this_cycle"], 1)
             self.assertEqual(payload["realized_pnl_cents"], -99)
             self.assertEqual(payload["model_version"], "exp-baseline-v1@2026-11-05")
-            self.assertEqual(payload["software_version"], "2.1.0")
+            self.assertEqual(payload["software_version"], "2.2.0")
             self.assertEqual(payload["observed_at"], "2026-11-05T20:40:00Z")
             self.assertNotEqual(payload["observed_at"], "2026-11-05T19:45:00Z")
             self.assertNotEqual(state / "ledger.sqlite", Path("/workspace/personal-finance/kalshi-paper/state/ledger.sqlite"))

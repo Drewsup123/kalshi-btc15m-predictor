@@ -29,7 +29,7 @@ class BaselineFrozenTests(unittest.TestCase):
         from kxbtc15m.signal import MODEL_VERSION
 
         self.assertEqual(MODEL_VERSION, "exp-baseline-v1@2026-11-05")
-        self.assertEqual(SOFTWARE_VERSION, "2.1.0")
+        self.assertEqual(SOFTWARE_VERSION, "2.2.0")
         self.assertNotEqual(SOFTWARE_VERSION, MODEL_VERSION)
 
     def test_refuses_parent_baseline_state_dir(self):

@@ -8,7 +8,6 @@ from pathlib import Path
 
 from kxbtc15m.clock import iso_utc, utc_now
 from kxbtc15m.ledger import Ledger
-from kxbtc15m.openexit import MODEL_VERSION
 from kxbtc15m.openexit.ledger import OpenExitLedger
 from kxbtc15m.signal import MODEL_VERSION as BASELINE_MODEL
 
@@ -69,7 +68,11 @@ def _openexit_block(path: Path, watch_pid: Path) -> dict:
         return {
             "running": running,
             "status": "running" if running else "ledger_only",
-            "model_version": MODEL_VERSION,
+            "model_version": ledger.model_version(),
+            "prior_model_version": ledger.prior_model_version(),
+            "risk_regime": ledger.risk_regime(),
+            "risk_max_debit_cents": 1000,
+            "risk_daily_downside": "none",
             "cash_cents": ledger.cash_cents(),
             "pending_exposure_cents": ledger.pending_exposure_cents(),
             "realized_pnl_cents": ledger.realized_pnl_cents(),

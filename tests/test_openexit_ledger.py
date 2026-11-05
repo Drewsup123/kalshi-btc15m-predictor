@@ -59,9 +59,9 @@ class LedgerMoneyTests(unittest.TestCase):
         self.ledger.official_settle("T1", "no", "2026-11-05T19:46:00Z")
         used_after = self.ledger.used_downside_cents(day)
         self.assertGreater(used_after, 0)
-        blocked = size_entry(Decimal("0.40"), Decimal("2"), self.ledger.cash_cents(), used_after, 0, OpenExitRisk())
-        if used_after >= 500:
-            self.assertEqual(blocked.skip_reason, "daily_downside_cap")
+        allowed = size_entry(Decimal("0.40"), Decimal("2"), self.ledger.cash_cents(), used_after, 0, OpenExitRisk())
+        self.assertTrue(allowed.ok)
+        self.assertNotEqual(allowed.skip_reason, "daily_downside_cap")
 
     def test_idempotent_settle(self):
         sized = size_entry(Decimal("0.40"), Decimal("1"), 10000, 0, 0, OpenExitRisk())
