@@ -9,9 +9,36 @@ This tree ships **two isolated paper books**:
 | Original baseline (frozen) | `exp-baseline-v1@2026-11-05` | `ledger.sqlite` | `~/.local/share/kxbtc15m-paper` or `KXBTC15M_STATE_DIR` | `cycle` / `status` |
 | Open-and-watch (second) | `exp-open-exit-v1@2026-11-05` | `openexit.sqlite` | `~/.local/share/kxbtc15m-paper-openexit` or `KXBTC15M_OPENEXIT_STATE_DIR` | `run` / `watch` / `report` |
 
-The original baseline is **unchanged**. Do not reset, migrate, or monkeypatch it. The parent-reported book at `/workspace/personal-finance/kalshi-paper/state/ledger.sqlite` is **not** in this environment and is never created here.
+Baseline **rules** and `model_version` (`exp-baseline-v1@2026-11-05`) are unchanged. Software **2.1.0** is a parser-only settlement unwrap so official `GET /markets/{ticker}` `{market:{result,status}}` can close a pending row. Do not reset, migrate, or rewrite the original ledger. The parent-reported book at `/workspace/personal-finance/kalshi-paper/state/ledger.sqlite` is **not** in this environment and is never created here.
 
 This is a **build**. Copy the `tar.gz` artifact onto the Linux computer that will run it. The parent executor deploys the artifact; it does not clone this repo. Shipping the code does **not** mean the parent runtime is deployed.
+
+## v2.1 atomic deploy (baseline `cycle` only)
+
+Parent: extract into a **new** directory. Point the existing `cycle` job at the new executable. Leave the original ledger path unchanged.
+
+Artifact: `kxbtc15m-paper-v2.1.tar.gz`  
+SHA256: `docs/artifact-v2.1.sha256` (hash of the tarball itself; do not expect that file to contain its own digest).
+
+```bash
+# 1. extract beside the running v2 tree — do not overwrite it in place
+mkdir -p "$HOME/kxbtc15m-paper-v2.1"
+tar -xzf kxbtc15m-paper-v2.1.tar.gz -C "$HOME/kxbtc15m-paper-v2.1" --strip-components=1
+chmod +x "$HOME/kxbtc15m-paper-v2.1/kxbtc15m"
+
+# 2. same ledger the parent already uses (do not copy, reset, or migrate)
+export KXBTC15M_STATE_DIR="${KXBTC15M_STATE_DIR:-$HOME/.local/share/kxbtc15m-paper}"
+# parent-reported book, if that is the live path:
+# export KXBTC15M_STATE_DIR=/workspace/personal-finance/kalshi-paper/state
+
+# 3. one-shot check, then switch only the cycle executable in cron/systemd
+"$HOME/kxbtc15m-paper-v2.1/kxbtc15m" status --state-dir "$KXBTC15M_STATE_DIR"
+"$HOME/kxbtc15m-paper-v2.1/kxbtc15m" cycle --state-dir "$KXBTC15M_STATE_DIR"
+```
+
+A wrapped official YES on a pending paper NO of 99¢ inclusive realizes **−$0.99**. `observed_at` is the run clock (UTC + America/Denver), not `close_time`. `software_version` is `2.1.0`; `model_version` stays `exp-baseline-v1@2026-11-05`.
+
+Open-exit watchers already on v2 keep using their own tree and `openexit.sqlite`. This v2.1 tree still contains `run`/`watch`/`report`.
 
 ## Limits (read these)
 
@@ -48,11 +75,11 @@ Public tape often has no reliable aggressor. Ambiguous prints never force an exi
 Python 3.11+ stdlib only. No `pip`. Deploy the tarball, not a git clone.
 
 ```bash
-# inspect, then extract
-tar -tzf kxbtc15m-paper-v2.tar.gz | head
-mkdir -p "$HOME/kxbtc15m-paper"
-tar -xzf kxbtc15m-paper-v2.tar.gz -C "$HOME/kxbtc15m-paper" --strip-components=1
-cd "$HOME/kxbtc15m-paper"
+# inspect, then extract (v2.1 is the settlement-parser fix; v2 still runs open-exit)
+tar -tzf kxbtc15m-paper-v2.1.tar.gz | head
+mkdir -p "$HOME/kxbtc15m-paper-v2.1"
+tar -xzf kxbtc15m-paper-v2.1.tar.gz -C "$HOME/kxbtc15m-paper-v2.1" --strip-components=1
+cd "$HOME/kxbtc15m-paper-v2.1"
 chmod +x kxbtc15m
 
 # --- original baseline (leave the existing ledger alone) ---

@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass, field
 
-from kxbtc15m.clock import denver_day, iso_utc
+from kxbtc15m import SOFTWARE_VERSION
+from kxbtc15m.clock import DENVER, denver_day, iso_utc, parse_utc
 from kxbtc15m.ledger import Ledger
 from kxbtc15m.money import cents_to_dollars
 
@@ -98,6 +99,12 @@ def ledger_snapshot(ledger: Ledger, now, model_version: str) -> dict:
 
 def build_report(ledger: Ledger, now, model_version: str, **fields) -> Report:
     snap = ledger_snapshot(ledger, now, model_version)
+    now = parse_utc(now)
+    extras = dict(fields.get("extras") or {})
+    extras.setdefault("observed_at", iso_utc(now))
+    extras.setdefault("observed_at_denver", now.astimezone(DENVER).strftime("%Y-%m-%d %H:%M:%S %Z"))
+    extras.setdefault("software_version", SOFTWARE_VERSION)
+    extras.setdefault("note", "observed_at is this run clock, not the market close_time")
     return Report(
         action=fields.get("action", "status"),
         skip_reason=fields.get("skip_reason"),
@@ -112,6 +119,7 @@ def build_report(ledger: Ledger, now, model_version: str, **fields) -> Report:
         debit_cents=fields.get("debit_cents", 0),
         settled_this_cycle=fields.get("settled_this_cycle", 0),
         data_health=fields.get("data_health", "ok"),
+        extras=extras,
         **{k: snap[k] for k in (
             "cash_cents",
             "pending_exposure_cents",
@@ -143,7 +151,8 @@ def format_text(report: Report) -> str:
         "KXBTC15M personal paper cycle",
         f"Action: {action}",
         f"Denver day: {report.denver_day}  cycle: {report.cycle_id or '—'}  market: {report.market_ticker or '—'}",
-        f"Model: {report.model_version}  class: {report.entry_class or '—'}  rule: {report.rule or '—'}  p_hat: none",
+        f"Observed at: {report.extras.get('observed_at')} ({report.extras.get('observed_at_denver')})",
+        f"Model: {report.model_version}  software: {report.extras.get('software_version')}  class: {report.entry_class or '—'}  rule: {report.rule or '—'}  p_hat: none",
         f"Cash: ${cents_to_dollars(report.cash_cents)}  pending exposure: ${cents_to_dollars(report.pending_exposure_cents)}  equity at cost: ${cents_to_dollars(report.equity_cents)}",
         f"Realized P&L: {_signed_dollars(report.realized_pnl_cents)}  (pending is not realized profit)",
         f"Wins/losses/skips/pending: {report.wins}/{report.losses}/{report.skips}/{report.pending_count}",

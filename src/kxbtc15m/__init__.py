@@ -1,3 +1,5 @@
 """Personal paper-only Kalshi KXBTC15M simulator."""
 
-__version__ = "1.0.0"
+# Software build. Not the experimental model_version string.
+SOFTWARE_VERSION = "2.1.0"
+__version__ = SOFTWARE_VERSION

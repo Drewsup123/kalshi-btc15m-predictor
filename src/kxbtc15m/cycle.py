@@ -14,6 +14,7 @@ from kxbtc15m.report import Report, build_report
 from kxbtc15m.risk import size_and_gate
 from kxbtc15m.signal import LastPrint, choose_side
 from kxbtc15m.client import FeedError, PublicClient
+from kxbtc15m.schema import unwrap_market
 
 TERMINAL_SKIPS = frozenset(
     {
@@ -81,11 +82,12 @@ def _settle_pending(client: PublicClient, ledger: Ledger, now_iso: str) -> tuple
     for row in list(ledger.pending_rows()):
         ticker = row["market_ticker"]
         try:
-            market = client.get_json(f"/markets/{ticker}")
+            raw = client.get_json(f"/markets/{ticker}")
         except FeedError as exc:
             health = f"failed_feed:{exc.status or 'network'}"
             continue
-        if not isinstance(market, dict):
+        market = unwrap_market(raw)
+        if not market:
             health = "failed_feed:malformed"
             continue
         result = ledger.settle(ticker, str(market.get("result") or ""), now_iso)

@@ -62,6 +62,48 @@ class CliTests(unittest.TestCase):
             payload = json.loads(buf.getvalue().split("\n\n", 1)[0])
             self.assertIn(payload["action"], ("entry", "skip"))
 
+    def test_cycle_cli_settles_nested_official_envelope(self):
+        from datetime import datetime, timezone
+
+        from kxbtc15m.ledger import Ledger
+        from tests.test_cycle import _client
+        from tests.test_settle_unwrap import OFFICIAL_NESTED_YES, TICKER
+
+        later = datetime(2026, 11, 5, 20, 40, 0, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as raw:
+            state = Path(raw)
+            ledger = Ledger(state / "ledger.sqlite")
+            ledger.open_position(
+                cycle_id="2026-11-05T19:45:00Z",
+                market_ticker=TICKER,
+                side="no",
+                contracts=15,
+                cost_cents=92,
+                fee_cents=7,
+                debit_cents=99,
+                ask_dollars="0.0613",
+                model_version="exp-baseline-v1@2026-11-05",
+                entry_class="experimental",
+                opened_at="2026-11-05T19:39:00Z",
+            )
+            ledger.close()
+            buf = io.StringIO()
+            with (
+                redirect_stdout(buf),
+                patch("kxbtc15m.cli.PublicClient", return_value=_client(**{TICKER: OFFICIAL_NESTED_YES})),
+                patch("kxbtc15m.cli.utc_now", return_value=later),
+            ):
+                code = main(["cycle", "--state-dir", str(state)])
+            self.assertEqual(code, 0)
+            payload = json.loads(buf.getvalue().split("\n\n", 1)[0])
+            self.assertGreaterEqual(payload["settled_this_cycle"], 1)
+            self.assertEqual(payload["realized_pnl_cents"], -99)
+            self.assertEqual(payload["model_version"], "exp-baseline-v1@2026-11-05")
+            self.assertEqual(payload["software_version"], "2.1.0")
+            self.assertEqual(payload["observed_at"], "2026-11-05T20:40:00Z")
+            self.assertNotEqual(payload["observed_at"], "2026-11-05T19:45:00Z")
+            self.assertFalse(Path("/workspace/personal-finance/kalshi-paper/state/ledger.sqlite").exists())
+
     def test_public_client_rejects_order_paths(self):
         client = PublicClient("https://api.elections.kalshi.com/trade-api/v2")
         with self.assertRaises(RuntimeError):
