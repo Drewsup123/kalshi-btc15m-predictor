@@ -1,0 +1,15 @@
+{
+  "api_base": "https://api.elections.kalshi.com/trade-api/v2",
+  "series_ticker": "KXBTC15M",
+  "starting_cash_cents": 10000,
+  "max_debit_cents": 100,
+  "max_daily_downside_cents": 500,
+  "max_pending": 1,
+  "stale_quote_seconds": 30,
+  "near_close_seconds": 60,
+  "ask_epsilon": "0.02",
+  "model_version": "exp-baseline-v1@2026-11-05",
+  "seed": 20261105,
+  "momentum_threshold_dollars": "20",
+  "timezone": "America/Denver"
+}

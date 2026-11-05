@@ -1,6 +1,6 @@
 # KXBTC15M Paper Simulator Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Ship a standalone personal paper-only Kalshi `KXBTC15M` Python CLI that settles, discovers, snapshots, signals, risk-checks, and simulates at most one entry per 15-minute cycle against a restart-safe SQLite ledger.
 
@@ -50,7 +50,7 @@
 **Interfaces:**
 - Produces: `dollars_to_cents_ceil(d) -> int`, `cents_to_dollars(c) -> str`, `taker_fee_cents(contracts: int, price_dollars, multiplier=1, fee_constant=0.07) -> int`, `assert_fee_source_ok(excerpt_text: str) -> None`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 # tests/test_money.py
@@ -94,16 +94,16 @@ def test_missing_excerpt_fails_closed():
         raise AssertionError("expected fail closed")
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `PYTHONPATH=src python3 -m unittest tests.test_money tests.test_fees -v`  
 Expected: FAIL / import errors (modules missing).
 
-- [ ] **Step 3: Implement money.py and fees.py** (stdlib Decimal; read excerpt path relative to repo `docs/official/kalshi-fee-schedule-excerpt.md`; require `0.07` and `round up` in the text).
+- [x] **Step 3: Implement money.py and fees.py** (stdlib Decimal; read excerpt path relative to repo `docs/official/kalshi-fee-schedule-excerpt.md`; require `0.07` and `round up` in the text).
 
-- [ ] **Step 4: Re-run tests — Expected: PASS**
+- [x] **Step 4: Re-run tests — Expected: PASS**
 
-- [ ] **Step 5: Commit** `feat: integer-cent money and official quadratic taker fee`
+- [x] **Step 5: Commit** `feat: integer-cent money and official quadratic taker fee`
 
 ---
 
@@ -120,7 +120,7 @@ Expected: FAIL / import errors (modules missing).
 - `choose_side(market_ticker, last_print, seed, threshold_dollars) -> Signal`
 - `size_and_gate(ask, book_size, cash_cents, used_downside_cents, pending_count, cfg) -> RiskDecision`
 
-- [ ] **Step 1: Failing tests**
+- [x] **Step 1: Failing tests**
 
 Quote: market YES ask 0.67 + best NO bid 0.33 → executable 0.67; disagree by 0.05 → `inconsistent_book`; ask 1.00 → `invalid_ask`; empty book → `thin_book`; age 31s → `stale_quote`; 30s to close → `near_close`.
 
@@ -128,13 +128,13 @@ Signal: last_print move +40 vs threshold 20 → YES; −40 → NO; +5 → seeded
 
 Risk: ask 0.99 + fee 1 cent → C=1 debit 100 allowed (inclusive); ask 0.99 needing 101 → skip `per_pick_cap`; used 400 + debit 101 → `daily_downside_cap`; used 400 + debit 100 allowed; pending_count 1 → `pending_open`; size never increases after a simulated prior loss (same ask yields same C).
 
-- [ ] **Step 2: Run — Expected FAIL**
+- [x] **Step 2: Run — Expected FAIL**
 
-- [ ] **Step 3: Implement the four modules**
+- [x] **Step 3: Implement the four modules**
 
-- [ ] **Step 4: Run — Expected PASS**
+- [x] **Step 4: Run — Expected PASS**
 
-- [ ] **Step 5: Commit** `feat: quote gates, experimental signal, risk caps`
+- [x] **Step 5: Commit** `feat: quote gates, experimental signal, risk caps`
 
 ---
 
@@ -147,15 +147,15 @@ Risk: ask 0.99 + fee 1 cent → C=1 debit 100 allowed (inclusive); ask 0.99 need
 **Interfaces:**
 - `Ledger(path)` with `init()`, `cash_cents()`, `record_prediction(...)`, `record_skip(...)`, `open_position(...)`, `settle(...)`, `pending()`, `summary(denver_day)`, `event_log()`
 
-- [ ] **Step 1: Failing tests** — start 10000 cents; open position debits cash, pending exposure set, realized unchanged; settle win/loss updates realized only; duplicate open/settle no second effect; missing result leaves pending; reopen same path restores cash/pending; prediction timestamp stored and not updated on settle.
+- [x] **Step 1: Failing tests** — start 10000 cents; open position debits cash, pending exposure set, realized unchanged; settle win/loss updates realized only; duplicate open/settle no second effect; missing result leaves pending; reopen same path restores cash/pending; prediction timestamp stored and not updated on settle.
 
-- [ ] **Step 2: Run — Expected FAIL**
+- [x] **Step 2: Run — Expected FAIL**
 
-- [ ] **Step 3: Implement SQLite schema + unique indexes**
+- [x] **Step 3: Implement SQLite schema + unique indexes**
 
-- [ ] **Step 4: Run — Expected PASS**
+- [x] **Step 4: Run — Expected PASS**
 
-- [ ] **Step 5: Commit** `feat: idempotent sqlite paper ledger`
+- [x] **Step 5: Commit** `feat: idempotent sqlite paper ledger`
 
 ---
 
@@ -172,15 +172,15 @@ Risk: ask 0.99 + fee 1 cent → C=1 debit 100 allowed (inclusive); ask 0.99 need
 - `format_json(report)`, `format_text(report)`
 - CLI `cycle` / `status`
 
-- [ ] **Step 1: Failing tests using fixture client (no network)** — full cycle skip on failed feed; entry writes prediction then position; second cycle same bucket no duplicate debit; settle after close from official result; prediction time ≤ close; status does not write; CLI cycle with temp state-dir; smoke ledger path ≠ fixture live path.
+- [x] **Step 1: Failing tests using fixture client (no network)** — full cycle skip on failed feed; entry writes prediction then position; second cycle same bucket no duplicate debit; settle after close from official result; prediction time ≤ close; status does not write; CLI cycle with temp state-dir; smoke ledger path ≠ fixture live path.
 
-- [ ] **Step 2: Run — Expected FAIL**
+- [x] **Step 2: Run — Expected FAIL**
 
-- [ ] **Step 3: Implement orchestrator + CLI**
+- [x] **Step 3: Implement orchestrator + CLI**
 
-- [ ] **Step 4: Run — Expected PASS**
+- [x] **Step 4: Run — Expected PASS**
 
-- [ ] **Step 5: Commit** `feat: cycle/status CLI with fixture-driven paper loop`
+- [x] **Step 5: Commit** `feat: cycle/status CLI with fixture-driven paper loop`
 
 ---
 
@@ -190,15 +190,15 @@ Risk: ask 0.99 + fee 1 cent → C=1 debit 100 allowed (inclusive); ask 0.99 need
 - Create: `README.md`, `config.schema.json`, `config.example.json`
 - Test: `tests/test_live_smoke.py` (skips if network/403)
 
-- [ ] **Step 1: Write README (install/run, config schema, limitations, fee source, build ≠ deployed)**
+- [x] **Step 1: Write README (install/run, config schema, limitations, fee source, build ≠ deployed)**
 
-- [ ] **Step 2: Live smoke GET series/markets/orderbook into temp dir; never default ledger**
+- [x] **Step 2: Live smoke GET series/markets/orderbook into temp dir; never default ledger**
 
-- [ ] **Step 3: Full unittest suite**
+- [x] **Step 3: Full unittest suite**
 
-- [ ] **Step 4: Pack `/opt/cursor/artifacts/kxbtc15m-paper-v1.tar.gz` excluding `.git`, secrets, `__pycache__`, local ledgers
+- [x] **Step 4: Pack `/opt/cursor/artifacts/kxbtc15m-paper-v1.tar.gz` excluding `.git`, secrets, `__pycache__`, local ledgers
 
-- [ ] **Step 5: Commit** `docs: README, schema, and deployment notes`
+- [x] **Step 5: Commit** `docs: README, schema, and deployment notes`
 
 ---
 

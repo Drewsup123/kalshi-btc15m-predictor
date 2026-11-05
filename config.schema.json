@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local/kxbtc15m/config.schema.json",
+  "title": "KXBTC15M paper simulator config",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "api_base": {
+      "type": "string",
+      "format": "uri",
+      "default": "https://api.elections.kalshi.com/trade-api/v2",
+      "description": "Official public Trade API base. Default is the documented alternate production host that worked in research. Do not set a demo host for fills."
+    },
+    "series_ticker": {
+      "type": "string",
+      "const": "KXBTC15M"
+    },
+    "starting_cash_cents": {
+      "type": "integer",
+      "const": 10000,
+      "description": "$100.00 paper cash."
+    },
+    "max_debit_cents": {
+      "type": "integer",
+      "const": 100,
+      "description": "Inclusive $1.00 worst-case debit per pick including fees."
+    },
+    "max_daily_downside_cents": {
+      "type": "integer",
+      "const": 500,
+      "description": "$5.00 America/Denver daily downside. Pending exposure counts; wins do not refill."
+    },
+    "max_pending": {
+      "type": "integer",
+      "const": 1
+    },
+    "stale_quote_seconds": {
+      "type": "integer",
+      "default": 30
+    },
+    "near_close_seconds": {
+      "type": "integer",
+      "default": 60
+    },
+    "ask_epsilon": {
+      "type": "string",
+      "default": "0.02",
+      "description": "Max allowed dollars between market ask and book-implied ask."
+    },
+    "model_version": {
+      "type": "string",
+      "default": "exp-baseline-v1@2026-11-05"
+    },
+    "seed": {
+      "type": "integer",
+      "default": 20261105
+    },
+    "momentum_threshold_dollars": {
+      "type": "string",
+      "default": "20"
+    },
+    "timezone": {
+      "type": "string",
+      "default": "America/Denver"
+    }
+  }
+}

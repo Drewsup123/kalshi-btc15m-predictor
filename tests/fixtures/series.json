@@ -1,0 +1,10 @@
+{
+  "series": {
+    "ticker": "KXBTC15M",
+    "frequency": "fifteen_min",
+    "title": "BTC 15 min",
+    "category": "Crypto",
+    "fee_type": "quadratic",
+    "fee_multiplier": 1
+  }
+}

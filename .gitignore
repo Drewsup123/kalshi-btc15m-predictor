@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+*.sqlite
+*.sqlite-journal
+var/
+state/
+uploads/
+agent-tools/
+.DS_Store

@@ -1,0 +1,11 @@
+{
+  "ticker": "KXBTC15M-26NOV051415-15",
+  "status": "finalized",
+  "result": "yes",
+  "expiration_value": "76051.55",
+  "floor_strike": 75987.05,
+  "settlement_value_dollars": "1.0000",
+  "close_time": "2026-11-05T19:15:00Z",
+  "yes_ask_dollars": "1.0000",
+  "no_ask_dollars": "0.0010"
+}

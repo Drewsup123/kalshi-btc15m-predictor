@@ -1,0 +1,17 @@
+{
+  "markets": [
+    {
+      "ticker": "KXBTC15M-26NOV051430-30",
+      "status": "active",
+      "yes_bid_dollars": "0.6600",
+      "yes_ask_dollars": "0.6700",
+      "no_bid_dollars": "0.3300",
+      "no_ask_dollars": "0.3400",
+      "floor_strike": 76051.55,
+      "close_time": "2026-11-05T19:30:00Z",
+      "open_time": "2026-11-05T19:15:00Z",
+      "volume_fp": "157553.07",
+      "result": ""
+    }
+  ]
+}

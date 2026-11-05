@@ -81,10 +81,17 @@ class SettleResult:
 
 
 class Ledger:
-    def __init__(self, path: Path | str, starting_cash_cents: int = 10000):
+    def __init__(self, path: Path | str, starting_cash_cents: int = 10000, readonly: bool = False):
         self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         self.starting_cash_cents = starting_cash_cents
+        self.readonly = readonly
+        if readonly:
+            if not self.path.is_file():
+                raise FileNotFoundError(self.path)
+            self.conn = sqlite3.connect(f"file:{self.path.resolve()}?mode=ro", uri=True)
+            self.conn.row_factory = sqlite3.Row
+            return
+        self.path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(self.path)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")

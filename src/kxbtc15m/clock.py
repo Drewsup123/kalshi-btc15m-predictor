@@ -27,3 +27,11 @@ def bucket_id(close_time: datetime | str) -> str:
 
 def denver_day(utc_dt: datetime | str) -> date:
     return parse_utc(utc_dt).astimezone(DENVER).date()
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def iso_utc(dt: datetime | str) -> str:
+    return parse_utc(dt).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
