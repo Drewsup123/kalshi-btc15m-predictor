@@ -1,8 +1,8 @@
 # Kalshi V3 prediction — design of record
 
-**Status:** conceptual design approved 2026-11-06 (Drew: “I approve this V3 design. Proceed with it.”). This file is the written spec for user review. **No implementation, fit, bulk download, daemon, or live runner until the written spec is accepted and a plan is written.**  
-**Date:** 2026-11-06  
-**Filename date:** `2026-11-05` (repo convention).  
+**Status:** conceptual design approved **2026-11-05 18:12 America/Denver** (UTC 2026-11-06). Drew: “I approve this V3 design. Proceed with it.” This file is the written spec for user review (methodological corrections 2026-11-05 Denver evening). **No implementation, fit, bulk download, daemon, or live runner until the written spec is accepted and a plan is written.**  
+**Date:** 2026-11-05 (America/Denver). UTC instants below are labeled UTC.  
+**Filename date:** `2026-11-05` (Denver calendar date of approval).  
 **Supersedes for V3 only:** last-10 direction as a *model*; open-exit tape-exit rules as a *predictor*. Those remain historical paper strategies. They are not V3.
 
 **One-liner:** at each `KXBTC15M` open, publish one **frozen** YES/NO (and an uncalibrated probability if the model emits one) within the first minute, from **normalized chart shape** known at a fixed instant, then score it against the official Kalshi CF settlement — not against Coinbase and not against a rewritten later update.
@@ -32,16 +32,17 @@ V3 state, if created later: `$KXBTC15M_V3_STATE_DIR` (default `var/v3/` in this 
 1. Inventory **all accessible** settled `KXBTC15M` markets (live + historical tiers).
 2. For each window, at a **fixed first-minute instant**, build as-of features and publish a frozen prediction — or an explicit miss/skip.
 3. Fit a compact regularized classifier and a train-only pattern-similarity challenger on **train/validation only**.
-4. Score **untouched holdout** YES/NO honestly (coverage, skips, baselines, intervals). End-price error is secondary.
+4. Score **untouched holdout** YES/NO honestly (coverage, skips, baselines, intervals). End-price error is secondary. Historical holdout is a **replay** under §4, not live-arrival proof.
 5. Persist versioned artifacts a **local read-only** results screen can render. Untrained / missing as-of data shows **unavailable**, never fake metrics.
 
 ### Non-goals
 
 - Promising 80–90% accuracy (display reference only).
 - Tuning or re-splitting the holdout to chase that line.
-- Trading-profit backtests, fill replay, or “we would have made $X” (no historical L2).
+- Trading-profit backtests or exact fill replay (examined public endpoints do not provide a verified historical depth archive; see §15).
 - Treating Coinbase (or event `live_data`) as CF Benchmarks.
-- Using eventual `floor_strike` on a settled row as if it had been observed at `t*`.
+- Calling an event timestamp (`settlement_ts`, candle period end, `close_time`) a **live observation**.
+- Using eventual `floor_strike` on a settled row as if it had been known at `t*` without a named sensitivity.
 - Backfilling a late initial forecast after `open+60s`.
 - Overwriting the frozen initial with a later intra-window update.
 - Macro features (source not verified).
@@ -59,10 +60,10 @@ Settlement source on `GET /series/KXBTC15M`: CF Benchmarks. Live `rules_primary`
 | Official opening ref (label) | `floor_strike` on the **settled** market | Label-time strike only |
 | Official end print (label) | `expiration_value` | Regression target; **never** a feature |
 | Official outcome (label) | `result` ∈ {`yes`,`no`} after `status=finalized` | Primary classification target |
-| As-of opening ref `S_t` | See §4 | The strike the **decision** is allowed to know |
-| Venue proxy `R_t` | Last **completed** Coinbase BTC-USD 1m **close** with period end ≤ `t*` | Feature, panel “current”, last-price control — **not** the `forecast_end` base |
+| As-of opening ref `S_t` | See §4 | Strike used at the **simulated decision** under the row’s availability mode |
+| Venue proxy `R_t` | Last Coinbase BTC-USD 1m **close** whose **period end ≤ `t*`** | Feature, panel “current”, last-price control — **not** the `forecast_end` base. Inclusion of that bar in history is a **replay assumption** (§4), not a receipt. |
 
-**Side rule:** official correctness is `pred_yes == result`. The **headline** `pred_yes` is the primary classifier (§7). The companion return model’s side is `forecast_end ≥ S_t` and may disagree; both are stored. `forecast_end` is the official as-of ref times the predicted return: `S_t × exp(ŷ_log)` (§7). `R_t` is the venue *current* (panel + features + last-price control), not the conversion base.
+**Side rule:** official correctness is `pred_yes == result`. The **headline** `pred_yes` is the primary classifier (§7). The companion return model’s side is `forecast_end ≥ S_t` and may disagree; both are stored. `forecast_end = S_t × exp(ŷ_log)` (§7). `R_t` is the venue *current*, not the conversion base.
 
 **Equality:** `expiration_value == floor_strike` → official YES. Do not invent a tie-break.
 
@@ -76,68 +77,95 @@ Settlement source on `GET /series/KXBTC15M`: CF Benchmarks. Live `rules_primary`
 
 ## 3. Forecast clock (frozen initial)
 
-All times UTC. `open` / `close` = that market’s `open_time` / `close_time`.
+Wall-clock fields that define the **market** are UTC ISO. The approval calendar date is America/Denver (see header). `open` / `close` = that market’s `open_time` / `close_time`.
 
 | Mark | Instant | Meaning |
 |---|---|---|
 | Open | `open` | Window starts. Initialized markets probed with `floor_strike=null`. |
-| **Decision `t*`** | **`open + 30s`** | **Only** as-of cutoff for features and `S_t`. Data arriving after `t*` is unused, even if still before the deadline. |
-| **Deadline** | **`open + 60s`** | Last legal emit (`t_pub`) for compute/IO. Not an extra data-wait window. |
-| Publish `t_pub` | `t* ≤ t_pub ≤ deadline` | Stored. Payload frozen at emit. |
-| Miss | emit missing, `t_pub > deadline`, or required as-of fields absent **at `t*`** | `missed_deadline` or the skip reason. **No backfill.** |
+| **Decision `t*`** | **`open + 30s`** | Simulated decision instant. Feature and `S_t` cutoff. Data with event time after `t*` is unused. |
+| **Deadline** | **`open + 60s`** | Last legal **simulated** publish (`t_pub_sim`) for the initial. Not an extra data-wait window. |
+| Simulated publish `t_pub_sim` | `t* ≤ t_pub_sim ≤ deadline` | When the *decision* is treated as published (replay or live). Frozen payload. |
+| Job time `run_generated_at` | Wall clock of the backtest/CLI process | **Never** a substitute for `t*` or `t_pub_sim`. |
+| Live receipt `observation_at` | HTTP **response completed** (forward only) | Required for `availability=observed_live`. |
 
-**Scoring lead:** the frozen initial only (about 14.5 minutes to scheduled close). Stored `time_left = close_time − t*`. `can_close_early=true` → use the market’s `close_time` as known at `t*`, not a hard-coded +15m.
+**Scoring lead:** the frozen initial only (about 14.5 minutes to scheduled close). Stored `time_left = close_time − t*`. `can_close_early=true` → use the market’s `close_time` as known at `t*` under the row’s availability mode, not a hard-coded +15m.
 
 **Later updates** (T+1m, T+5m, T+10m, …): optional later, **separate** `forecast_id` / lead bucket. They must not mutate the initial row. They are **not** the headline metric.
 
-**1m bars:** include a bar iff **period end ≤ `t*`**. `t_pub` does not enlarge the bar set. Coinbase exchange candles are labeled at **period start** `T` covering `[T, T+60)`, closed at `T+60`.
+**1m bars (event-time filter):** a bar may enter the candidate set only if **period end ≤ `t*`**. Coinbase exchange candles are labeled at **period start** `T` covering `[T, T+60)`, period end `T+60`.
 
 - Last legal bar at `t*`: the bar that **ends at `open`** (start `open−60s`).
 - **Current open minute** `[open, open+60)` ends at `open+60s` → **excluded** from the initial.
 - No 15m (or “full window”) bar of the current market.
 
-**Replay assumption (disclosed):** in historical replay, a completed bar is treated as available at its period end. That is **not** a claim that a live HTTP GET succeeded at that instant. Live emit must log the GET time. If the required closed bars are absent at `t*` → skip `missing_underlying`, not a fabricated close.
+Period end ≤ `t*` is an **event-time** filter (no future bar). It is **not** proof the bar had arrived at a client by `t*`. See §4.
 
-**No “full market data”:** features may not include any print, candle, or metadata whose event time is after `t*`.
-
-**Historical tape (optional pressure):** public `GET /markets/trades` or `/historical/trades` for the prior ticker (and the current ticker if any prints exist), keep rows with `created_time ≤ t*` and a known `taker_outcome_side`. Page with backoff; persist raw pages. Do **not** paste live book snapshots, the ~20 local `state/snapshots/` files, or post-`t*` trades into history. Unknown aggressor is dropped, not guessed. Tape is not a profit fill tape.
+**Historical tape (optional pressure):** public `GET /markets/trades` or `/historical/trades` for the prior ticker (and the current ticker if any prints exist), keep rows with `created_time ≤ t*` and a known `taker_outcome_side`. That timestamp is a **replay publication proxy**, same as §4. Page with backoff; persist raw pages. Do **not** paste live book snapshots, the ~20 local `state/snapshots/` files, or post-`t*` trades into history. Unknown aggressor is dropped, not guessed. Tape is not a profit fill tape.
 
 ---
 
-## 4. As-of opening ref `S_t` (no hindsight floor)
+## 4. Availability modes: replay vs observed live
 
-The settled object’s `floor_strike` is the **label** strike. It is **not** automatically a `t*` feature.
+An **event timestamp is not a receipt.** `settlement_ts`, candle period end, `created_time`, `close_time`, and `open_time` do not prove a field was sitting in our process at `t*`.
 
-Probed (2026-11-05/06, public GET): prior `expiration_value` chained to the next market’s `floor_strike` on 39/39 consecutive pairs in a 40-row page; `settlement_ts` lagged close by about **2–7 seconds**.
+Two modes. Every row has exactly one. Historical holdout uses replay. Live forward uses observed. Do not mix them in one headline number.
 
-### Allowed `S_t` (observed-arrival — default score)
+### 4.1 `availability=historical_replay` (default for inventory / train / val / holdout)
 
-Cutoff is **`t*`**, not `t_pub`. Use the first that exists **as of `t*`**:
+**Purpose:** a useful offline score under **disclosed** publication-proxy assumptions. Not reliability proof that a live first-minute poll would have seen the same bytes. The parent already treats historical tests this way.
 
-1. Previous same-series official `expiration_value` whose `settlement_ts ≤ t*`.
-2. **Live only:** `floor_strike` on the **current** market if a GET **started at or before `t*`** returned a finite value. Store the raw envelope and the request timestamp. A GET started after `t*` cannot supply `S_t` for the initial.
+**Default assumption (store on every replay row):**
 
-Otherwise: skip `insufficient_opening_ref`. Do not score official YES/NO for that row. Waiting until +59s for a late `settlement_ts` is backfill and is forbidden.
+`replay_assumption=prior_print_after_settlement_ts`
 
-### Forbidden
+- Prior same-series `expiration_value` is treated as usable for `S_t` iff that market’s official `settlement_ts ≤ t*`.
+- Coinbase (and optional tape) points are treated as usable iff their **event** time ≤ `t*` (bar period end; trade `created_time`).
+- This is a **proxy** for “published by then,” not an observation log.
 
-- Filling `S_t` from the current market’s **eventual** settled `floor_strike` without an as-of observation.
-- Using a prior `expiration_value` before that market’s `settlement_ts`.
-- Treating event-time (`close_time`, candle end, `open_time`) as proof a metadata field had arrived.
+**Do not:**
 
-### Diagnostics (not features, not labels)
+- Label replay rows `observed_arrival` or “we saw this at `t*`.”
+- Skip every historical window as `missed` merely because no 2026 receipt log exists.
+- Pretend the backtest machine’s `run_generated_at` was `t_pub_sim`.
+- Use the current market’s **eventual** `floor_strike` / `expiration_value` / `result` as inputs.
+- Use any event time **after** `t*` (no future path).
 
-- Chain rate: eventual `floor_strike` vs as-of prior print (expect near 1.0; breaks are reported).
-- Sensitivity (optional, labeled `replay_assumption=prior_print_by_tstar`): assume prior print is visible by `t*` whenever `settlement_ts` is within 30s after prior close. **Not** the headline universe.
+**If the proxy cannot form `S_t`** (no prior finalized print with `settlement_ts ≤ t*`): skip `insufficient_opening_ref` under replay. That is a coverage hole in the assumption, not a live miss.
 
-`result` / `expiration_value` of the **current** window are labels after `settlement_ts`. Never inputs.
+**Sensitivity (optional, not headline):** `replay_assumption=eventual_floor_as_St` — set `S_t` to the settled current `floor_strike`. Must be named. Default forbids it.
+
+**Chain diagnostic (not a feature):** how often eventual current `floor_strike` equals the replay `S_t` from the prior print.
+
+### 4.2 `availability=observed_live` (forward only, when a live emit exists)
+
+A field counts as known at `t*` only if **`observation_at ≤ t*`**, where `observation_at` is the time the HTTP **response completed** and the payload was parsed.
+
+- A request **started** before `t*` whose response completes **after** `t*` does **not** prove the field as-of `t*`. Do not use it for the frozen initial.
+- Live `S_t`: prior official print or current `floor_strike` only from a response with `observation_at ≤ t*`. Else live skip `insufficient_opening_ref` / `missed_deadline` as applicable.
+- Log raw URL, status, `request_started_at`, `observation_at`, payload hash.
+
+No live receipt log → that window is **not** in the observed-live book. It may still appear in replay.
+
+### 4.3 Clocks stored on every row
+
+| Field | Meaning |
+|---|---|
+| `prediction_asof` | `t*` (decision / feature cutoff) |
+| `t_pub_sim` | Simulated publish time in `[t*, deadline]` |
+| `dataset_asof` | Inventory cutoff id (historical + live settled pull as-of) |
+| `run_generated_at` | When this job wrote the row |
+| `observation_at` | Live response-completed time, or null on replay |
+| `availability` | `historical_replay` \| `observed_live` |
+| `replay_assumption` | String id or null (null only if observed_live) |
+
+`result` / `expiration_value` of the **current** window are labels after that market’s own `settlement_ts`. Never inputs.
 
 ---
 
 ## 5. Dataset inventory (after plan approval — not this commit)
 
 **Host:** `https://api.elections.kalshi.com/trade-api/v2`  
-**Cutoff (probed, moves):** `GET /historical/cutoff` → `market_settled_ts` and `trades_created_ts` were `2026-09-06T00:00:00Z` on 2026-11-05/06.
+**Cutoff (probed, moves):** `GET /historical/cutoff` → `market_settled_ts` and `trades_created_ts` were `2026-09-06T00:00:00Z` on probes dated 2026-11-05 America/Denver.
 
 | Tier | Path |
 |---|---|
@@ -152,7 +180,7 @@ Historical `/historical/markets` has **no** timestamp filter (series + cursor). 
 **Builder rules (when implemented):**
 
 - Cursor until empty. Dedup by `ticker`.
-- Persist raw JSON pages + request URL + response time + HTTP status (provenance).
+- Persist raw JSON pages + request URL + response time + HTTP status (provenance). Those times are `run_generated_at` / fetch receipts, **not** `t*`.
 - 429: exponential backoff, no penalty assumed; checkpoint cursor; resume later.
 - Bounded concurrency. **This spec commit does not start that download.**
 - Cache is a content-addressed raw store, not a mutated feature store.
@@ -178,7 +206,7 @@ Philosophy: the past may rhyme in **shape**, not in dollar level. That is not an
 
 ### v1 vector (same for classifier, pattern challenger, and return regression)
 
-From Coinbase 1m bars with period end ≤ `t*`:
+From Coinbase 1m bars with period end ≤ `t*` (replay proxy or live receipt per §4):
 
 | Group | Definition |
 |---|---|
@@ -186,14 +214,14 @@ From Coinbase 1m bars with period end ≤ `t*`:
 | Vol-scaled momentum | those returns ÷ recent vol (e.g. std of last 16 closed 1m log returns); ε-guard |
 | Relative volume | last closed bar volume ÷ train-defined median of prior 96 closed volumes |
 | Normalized range / path | `(high−low)/close`; ATR-style mean range / close over 16 bars; upper wick / range; lower wick / range; `(close−low)/(high−low)` on the last closed bar |
-| Last-10 official | counts and median residual `(expiration − floor)` of up to 10 prior same-series finalized markets with `settlement_ts ≤ t*` — **not** `close_time < open` |
-| Point-in-time pressure | optional: size-weighted known-aggressor imbalance on the **prior** ticker (and current ticker if any) with `created_time ≤ t*`; unknown aggressor excluded; then z-scored with train stats |
+| Last-10 official | YES/NO counts and **median official log-return** `log(expiration_value / floor_strike)` of up to 10 prior same-series finalized markets eligible under §4 (`settlement_ts ≤ t*` in replay; observed receipt in live) — **not** `close_time < open`, **not** a dollar residual `(expiration − floor)` |
+| Point-in-time pressure | optional: size-weighted known-aggressor imbalance on the **prior** ticker (and current ticker if any) with `created_time ≤ t*` (replay proxy) or `observation_at ≤ t*` (live); unknown aggressor excluded; then z-scored with train stats |
 
-**Not in v1:** raw USD levels; “nearest $76,014” neighbors; historical L2 or invented depth; 1m bid/ask highs as “spread” unless explicitly named `spread_proxy_1m` and ablated; macro calendar; event `live_data`; current-window path; `expiration_value` / terminal contract price of the current market.
+**Not in v1:** raw USD levels or dollar residuals in the shape vector; “nearest $76,014” neighbors; invented depth; 1m bid/ask highs as “spread” unless explicitly named `spread_proxy_1m` and ablated; macro calendar; event `live_data`; current-window path; `expiration_value` / terminal contract price of the current market.
 
-**Degrade:** missing group → zero + `missing_<group>=1` if the core (opening ref + at least the 16-bar return/vol block) exists; else skip (`missing_underlying`, `insufficient_history`, `insufficient_opening_ref`). Never invent a side or a calibrated percent.
+**Degrade:** missing group → zero + `missing_<group>=1` if the core (`S_t` + at least the 16-bar return/vol block) exists; else skip (`missing_underlying`, `insufficient_history`, `insufficient_opening_ref`). Never invent a side or a calibrated percent.
 
-**Last-10 leakage fix:** existing open-exit `lean.py` uses `close_time < open`. V3 must not copy that. At `t* = open+30s`, the just-closed window is usually eligible (probed settle lag 2–7s) **only if** its `settlement_ts ≤ t*`. If not, it is out. Record which tickers entered.
+**Last-10 leakage fix:** existing open-exit `lean.py` uses `close_time < open`. V3 must not copy that. Eligibility follows §4. Record which tickers entered.
 
 ---
 
@@ -203,10 +231,10 @@ One feature vector. Parameters chosen on **train + validation only**.
 
 | ID | What | Output | Role |
 |---|---|---|---|
-| **A (v1 primary)** | L2-regularized **logistic** on the shape vector, implemented in **numpy** (IRLS / iteratively reweighted least squares). scikit-learn is not required for v1. | `p_yes` (uncalibrated), `pred_yes = 1{p_yes ≥ 0.5}` | Headline class |
+| **A (v1 primary)** | L2-regularized **logistic** on the shape vector, implemented in **numpy** (IRLS). scikit-learn is not required for v1. | `p_yes` (uncalibrated), `pred_yes = 1{p_yes ≥ 0.5}` | Headline class |
 | **A-ret (companion)** | L2 **Ridge** (numpy) trained on official log-return `y = log(expiration_value / floor_strike)` using **label-time** prints only for `y`. At decision, apply to as-of `S_t`. | `ŷ_log`; `forecast_end = S_t × exp(ŷ_log)` | Secondary price |
 | **B (challenger)** | Train-only kNN in **z-scored** feature space (`k=25`, Euclidean, unweighted majority). Distance weights are a validation-only ablation. | vote `pred_yes`; `p_yes =` yes-neighbor fraction (uncalibrated); `forecast_end = S_t × exp(median neighbor official log-return)` | Pattern-rhyme baseline |
-| **C controls** | Majority class (train prior); last-10 majority (`settlement_ts ≤ t*`, tie → skip); **no-change** `ŷ_log=0` → `forecast_end=S_t`, side YES (equality rule); **last-price** `forecast_end=R_t`, side `R_t ≥ S_t` | — | Always reported on the same scored rows |
+| **C controls** | Majority class (train prior); last-10 majority (eligibility §4, tie → skip); **no-change** `ŷ_log=0` → `forecast_end=S_t`, side YES (equality rule); **last-price** `forecast_end=R_t`, side `R_t ≥ S_t` | — | Always reported on the same scored rows |
 
 **Headline `pred_yes` for A** is the logistic class, even if `forecast_end ≥ S_t` disagrees. Store both. **B** uses its vote as headline for the B column.
 
@@ -228,31 +256,38 @@ Unit = one 15m market in the score universe that has a frozen initial (or an exp
 
 - Sort by `close_time` ascending.
 - **Train** first 70%, **validation** next 15%, **holdout** last 15% of score-universe rows.
-- Holdout is **untouched** until the model and scalers are locked. No peeking, no re-cut.
+- Holdout is **untouched** until the model and scalers are locked. No peeking, no re-cut, **no leakage or permutation tests on the real holdout**.
 - **Walk-forward inside train+val only:** expanding origin, test slices of 7 calendar days, embargo **≥ 96m + 15m** after the last training close.
 - Scalers / kNN library / `λ` refit only on that fold’s training past.
 
-**Leakage tests (job fails if any fail):**
+**Leakage / unit tests — synthetic fixtures and train/validation only** (job fails if a *structural* check fails):
 
 1. Current `expiration_value` / `result` / eventual `floor_strike` absent from the feature vector.
-2. Last-10 membership uses `settlement_ts ≤ t*`, not `close_time < open`.
-3. Every bar has period end ≤ `t*`.
-4. Label permutation on train → holdout accuracy ~ chance (within a frozen band of majority ± 3 pp).
+2. Last-10 membership uses §4 eligibility, not `close_time < open`.
+3. Every bar has period end ≤ `t*` (no future event data).
+4. Replay rows are tagged `historical_replay`; a fixture that only has eventual floor without a prior `settlement_ts ≤ t*` skips under the default assumption.
 5. No random (i.i.d.) split is used for the reported number.
+6. Live fixture: response completing after `t*` cannot supply `S_t` even if the request started before `t*`.
+
+**Permutation diagnostic (optional, validation only):** shuffle validation labels and report accuracy with a Wilson (or binomial) interval as a **disclosure**, not a pass/fail “must equal chance ± 3 pp,” and not a reason to retune. Never run this on holdout. Never use it as a guarantee.
+
+After lock: **one** holdout pass. That pass is the headline replay score, labeled as replay.
 
 ---
 
 ## 9. Metrics
 
-**Headline universe:** holdout rows with a frozen initial and official `result`. Misses/skips are **coverage**, not scored as wrong.
+**Headline universe:** **historical_replay** holdout rows with a frozen initial and official `result`. Misses/skips are **coverage**, not scored as wrong. Title the number **replay holdout**, with `replay_assumption` visible.
 
-**Primary**
+**Observed-live** metrics, if any rows exist, are a **separate** table. Do not blend.
+
+**Primary (each table)**
 
 - Accuracy of `pred_yes` vs `result`
-- Wilson 95% interval (n = scored holdout)
+- Wilson 95% interval (n = scored rows in that table)
 - Confusion matrix
 - Coverage = scored / (scored + skips + misses); skip-reason histogram
-- Vs 50%, vs train-majority, vs last-10 (same rows where last-10 exists), vs same-timestamp contract implied **only if** a quote was **observed at or before `t*`** (historical open book is usually missing → that baseline is omitted, not padded)
+- Vs 50%, vs train-majority, vs last-10 (same rows where last-10 exists), vs contract implied **only if** a quote exists under that table’s availability mode (replay: usually omit; live: `observation_at ≤ t*`)
 - Class imbalance (YES rate)
 - If `p_yes` present: Brier, log-loss, reliability bins — still tagged uncalibrated unless §7 says otherwise
 
@@ -271,7 +306,7 @@ Unit = one 15m market in the score universe that has a frozen initial (or an exp
 
 Every prediction row stores at least:
 
-`model_version`, `feature_spec_hash`, `dataset_cutoff_id`, `ticker`, `open_time`, `close_time`, `t_star`, `t_pub`, `lead_bucket=initial`, `S_t` + `S_t_source`, `R_t` + candle end, `pred_yes`, `p_yes` + `calibration`, `forecast_end`, `ŷ_log`, skip/miss reason or null, replay label (`observed_arrival` | `replay_assumption=…`), raw-input provenance (payload hashes or cache keys), official `floor_strike` / `expiration_value` / `result` / `settlement_ts` **after** settle (label block, separate from features).
+`model_version`, `feature_spec_hash`, `dataset_asof` / `dataset_cutoff_id`, `prediction_asof` (`t*`), `t_pub_sim`, `run_generated_at`, `observation_at` (nullable), `availability`, `replay_assumption` (nullable), `ticker`, `open_time`, `close_time`, `lead_bucket=initial`, `S_t` + `S_t_source`, `R_t` + candle period end, `pred_yes`, `p_yes` + `calibration`, `forecast_end`, `ŷ_log`, skip/miss reason or null, raw-input provenance (payload hashes or cache keys), official `floor_strike` / `expiration_value` / `result` / `settlement_ts` **after** settle (label block, separate from features).
 
 On-disk default (later): `$KXBTC15M_V3_STATE_DIR` or `var/v3/` → `raw/`, `inventory.json`, `predictions.csv`, `metrics.json`. Never under `personal-finance/kalshi-paper` or the openexit dir. Old ledgers never written.
 
@@ -279,14 +314,15 @@ On-disk default (later): `$KXBTC15M_V3_STATE_DIR` or `var/v3/` → `raw/`, `inve
 
 ## 11. Evaluation interface (proposed, not built)
 
-**Phase 1 (this spec’s product):** offline historical evaluation + a **local read-only** results screen that **only** reads those artifacts. No server on the public internet. No background browser job. No fake stream.
+**Phase 1 (this spec’s product):** offline historical **replay** evaluation + a **local read-only** results screen that **only** reads those artifacts. No server on the public internet. No background browser job. No fake stream.
 
-**Phase 2 (optional, later):** on-demand CLI that, if invoked during `[open, open+60s]`, emits one frozen initial. Not promised as an always-on or offline-page side effect.
+**Phase 2 (optional, later):** on-demand CLI that, if invoked during `[open, open+60s]`, emits one frozen initial with `availability=observed_live` when receipts qualify. Not promised as an always-on or offline-page side effect.
 
 | Surface | Rule |
 |---|---|
-| Current-market panel | Show opening `S_t`, current `R_t`, frozen `forecast_end`, official result (if settled), time left, as-of inputs — **only** if a real as-of snapshot for this window exists. Else **unavailable**. |
-| Eval section | Holdout accuracy vs 80% and 90% **lines**; coverage; skips; baselines; imbalance; Brier if present; out-of-time chunk curve; confusion; per-market table (predicted / actual / correct / `|forecast_end − expiration_value|` / timestamps / `model_version`); download of the prediction file |
+| Banner | `availability` + `replay_assumption` (or “observed live”). `prediction_asof` / `dataset_asof` vs `run_generated_at` printed as **different** clocks. Replay copy: historical score uses publication-proxy assumptions, not live-arrival proof. |
+| Current-market panel | Show opening `S_t`, current `R_t`, frozen `forecast_end`, official result (if settled), time left, as-of inputs — **only** if a real **observed-live** snapshot for this window exists (`observation_at ≤ t*`). Else **unavailable** (do not fill from replay). |
+| Eval section | **Replay holdout** accuracy vs 80% and 90% **lines**; coverage; skips; baselines; imbalance; Brier if present; out-of-time chunk curve; confusion; per-market table (predicted / actual / correct / `|forecast_end − expiration_value|` / `prediction_asof` / `run_generated_at` / `model_version` / availability). Separate block for observed-live if any rows. Download of the prediction file |
 | Empty / untrained | Copy: **not trained** / **no evaluation yet**. No 0%, no 80%, no dummy rows |
 
 The current-market view and the historical eval are **not** an auto-updating live stream unless a later authorized runner exists. This spec does not authorize that runner.
@@ -297,10 +333,10 @@ The current-market view and the historical eval are **not** an auto-updating liv
 
 ```
 inventory (public GET, cached raw)
-  → asof feature builder (t*, completed bars only)
+  → asof feature builder (t*, event-time ≤ t*; mode = replay | observed)
   → split + scalers (train only)
   → A logistic + A-ret Ridge + B kNN + C controls
-  → lock → holdout once
+  → lock → holdout once (replay)
   → metrics.json + predictions.csv
   → local read-only screen
 ```
@@ -313,29 +349,32 @@ Units (single purpose): `inventory`, `asof`, `features`, `split`, `models`, `met
 
 1. Inventory reports grid holes, exclusions, base rate, chain breaks; N is measured, not guessed.
 2. A synthetic fixture with a bar ending after `t*` is dropped; a test fails if it appears in the vector.
-3. A fixture whose only `floor_strike` is the settled eventual value, with no prior print whose `settlement_ts ≤ t*`, is `insufficient_opening_ref`. A print that arrives after `t*` but before the deadline must not create `S_t`.
-4. Last-10 fixture: `close_time < open` but `settlement_ts > t*` → market **excluded** from last-10.
-5. Emit after `open+60s` → `missed_deadline`; no backfilled initial.
-6. Updating a T+1m row does not change the initial row’s `pred_yes` / `forecast_end` / `t_pub`.
-7. Holdout metrics appear only after a lock file; before that the screen is **not trained**.
+3. Replay fixture: only eventual current `floor_strike`, no prior print with `settlement_ts ≤ t*` → `insufficient_opening_ref`. Default path must not use eventual floor.
+4. Last-10 fixture: `close_time < open` but `settlement_ts > t*` → excluded from last-10. Last-10 median is a log-return, not USD.
+5. Simulated emit after `open+60s` → `missed_deadline`; no backfilled initial. `run_generated_at` may be any later wall time.
+6. Updating a T+1m row does not change the initial row’s `pred_yes` / `forecast_end` / `t_pub_sim`.
+7. Holdout metrics appear only after a lock file; before that the screen is **not trained**. Holdout is unused by leakage tests.
 8. Old ledger files’ mtime/hash unchanged by V3 commands.
 9. No order/account paths; client keeps those fragments forbidden.
-10. Headline table includes A, B, and C on the same scored holdout rows, plus Wilson and coverage.
+10. Headline table includes A, B, and C on the same scored **replay** holdout rows, plus Wilson and coverage, with `historical_replay` labeled.
+11. Live fixture: `request_started_at < t* < observation_at` → field unusable for the initial.
+12. Screen shows `prediction_asof`, `dataset_asof`, and `run_generated_at` as three values; observed-live block is separate or “unavailable.”
 
 ---
 
 ## 14. Test plan (when implementing)
 
-| Layer | Tests |
-|---|---|
-| Clock | `t*` / deadline vs sample `open_time`; early close uses live `close_time` |
-| As-of | candle inclusion; `S_t` sources; forbidden eventual floor; `settlement_ts` last-10 |
-| Inventory | cursor stub pages, dedup, grid hole, exclusion reasons |
-| Features | no raw USD in the vector; train-only scaler does not see holdout |
-| Models | A vs B vs C on a tiny fixture; purge drops overlapping neighbors |
-| Metrics | skip ≠ error; Wilson on a known n; empty report has no numeric accuracy |
-| Isolation | refuse write under personal-finance / openexit paths |
-| Leakage | the five checks in §8 |
+| Layer | Tests | Data |
+|---|---|---|
+| Clock | `t*` / deadline vs sample `open_time`; `run_generated_at ≠ t_pub_sim` | Synthetic |
+| As-of | candle event-time; replay `S_t`; forbidden eventual floor; last-10; late live response | Synthetic |
+| Inventory | cursor stub pages, dedup, grid hole, exclusion reasons | Synthetic |
+| Features | no raw USD residual in the vector; train-only scaler does not see holdout | Synthetic + train/val fixtures |
+| Models | A vs B vs C on a tiny fixture; purge drops overlapping neighbors | Synthetic |
+| Metrics | skip ≠ error; Wilson on a known n; empty report has no numeric accuracy; replay vs live tables do not blend | Synthetic |
+| Isolation | refuse write under personal-finance / openexit paths | Synthetic |
+| Leakage | §8 structural checks 1–6 | Synthetic + train/val only |
+| Permutation | optional disclosure on validation | Validation only — not holdout |
 
 Live HTTP in tests: bounded optional smoke only, never a training run.
 
@@ -345,9 +384,9 @@ Live HTTP in tests: bounded optional smoke only, never a training run.
 
 - First-minute forecast has **no** in-window 1m bar; it is a pre-open shape call.
 - Coinbase ≠ CF; residual error vs `expiration_value` is expected.
-- Historical L2 does not exist; market-implied baseline will often be absent.
-- Bar-available-at-close is a replay assumption, not a logged live arrival.
-- `floor_strike` publish at the first millisecond of `open` was not sampled; default `S_t` is the prior official print after `settlement_ts`.
+- **Depth:** `GET /historical/markets/{ticker}/orderbook` returned **404** in the 2026-11-05 research probe; a live orderbook GET on an archived ticker returned empty bids. **No official public historical L2/depth archive was verified on the endpoints examined.** Exact executable-fill replay is unsupported with this dataset. This does **not** claim that no depth archive exists anywhere in the world.
+- Historical replay uses publication-proxy timestamps. That is an assumption, not live-arrival proof.
+- `floor_strike` publish at the first millisecond of `open` was not receipt-logged; default replay `S_t` is the prior official print after `settlement_ts`.
 - Pattern similarity can look convincing and still be chance; no edge is assumed.
 - Public unauth GET rate limits are not a documented Basic-tier token budget; backoff is required.
 - Contract-terms PDF returned HTTP 500 during research; `rules_primary` on the market is the rule used here.
@@ -358,9 +397,9 @@ Live HTTP in tests: bounded optional smoke only, never a training run.
 ## 16. Sources (research, not training data)
 
 - Kalshi: [Historical data](https://docs.kalshi.com/getting_started/historical_data), [Market lifecycle](https://docs.kalshi.com/getting_started/market_lifecycle), [Market settlement](https://docs.kalshi.com/getting_started/market_settlement), [Crypto help](https://help.kalshi.com/en/articles/13823838-crypto-markets), [Pagination](https://docs.kalshi.com/getting_started/pagination), [Rate limits](https://docs.kalshi.com/getting_started/rate_limits) (authenticated tiers), [CF passthrough](https://docs.kalshi.com/cfbenchmarks/rest-passthrough.md) (auth — unused).
-- Series / markets / cutoff / trades: public GET `https://api.elections.kalshi.com/trade-api/v2` (probed 2026-11-05–06).
+- Series / markets / cutoff / trades: public GET `https://api.elections.kalshi.com/trade-api/v2` (probed 2026-11-05 America/Denver).
 - Coinbase exchange public candles.
-- Attached research note: `history-research_68a0.md` (availability matrix; last-10 `close_time` pitfall).
+- Attached research note: `history-research_68a0.md` (availability matrix; last-10 `close_time` pitfall; historical orderbook 404).
 - This repo: `src/kxbtc15m/openexit/lean.py` (incorrect eligibility for V3), `schema.py`, `clock.py`.
 
 ---
@@ -371,4 +410,4 @@ Live HTTP in tests: bounded optional smoke only, never a training run.
 2. Writing-plans produces an implementation plan (TDD, inventory first, no holdout peek).
 3. Then implementation. Not before.
 
-**Locked choices (not left open):** `t* = open+30s` is the data cutoff; deadline `+60s` is emit-only; observed-arrival `S_t` as of `t*`; `forecast_end = S_t × exp(ŷ_log)`; 96m lookback; embargo 96m+15m; 70/15/15; A = numpy L2 logistic; A-ret = numpy Ridge on official log-return; B = k=25 purged kNN; no-change vs last-price are distinct controls; macro off; BTC-only score; Phase 1 = offline eval + local read-only screen.
+**Locked choices:** `t* = open+30s` is the decision cutoff; deadline `+60s` is simulated emit-only; `forecast_end = S_t × exp(ŷ_log)`; 96m lookback; embargo 96m+15m; 70/15/15; A = numpy L2 logistic; A-ret = numpy Ridge on official log-return; B = k=25 purged kNN; no-change vs last-price are distinct controls; last-10 features are counts + median **log-return**; default history is `historical_replay` + `prior_print_after_settlement_ts`; observed-live is receipt-logged only; macro off; BTC-only score; Phase 1 = offline replay eval + local read-only screen.
