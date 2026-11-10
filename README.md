@@ -166,6 +166,9 @@ kxbtc15m status [--state-dir DIR]
 kxbtc15m run    [--state-dir DIR] [--api-base URL]
 kxbtc15m watch  [--state-dir DIR] [--api-base URL] [--interval 20]
 kxbtc15m report [--state-dir DIR] [--baseline-state-dir DIR]
+kxbtc15m v3-inventory [--state-dir DIR] [--api-base URL]
+kxbtc15m v3-evaluate  [--state-dir DIR]
+kxbtc15m v3-screen    [--state-dir DIR]
 ```
 
 | Input | Env | Default |
@@ -176,6 +179,24 @@ kxbtc15m report [--state-dir DIR] [--baseline-state-dir DIR]
 | report `--baseline-state-dir` | `KXBTC15M_STATE_DIR` | parent path if present, else that env |
 
 `report` never creates a missing baseline `ledger.sqlite`. `observed_at` is the report clock.
+
+## V3 first-minute prediction (Phase 1, read-only)
+
+Offline **historical replay** of a frozen YES/NO published by `open+60s`, scored against official Kalshi `result` / `expiration_value`. Not a trading bot. Public GET only. Does not open the old paper ledgers.
+
+Spec: `docs/superpowers/specs/2026-11-05-kalshi-v3-prediction-design.md`  
+Plan: `docs/superpowers/plans/2026-11-09-kalshi-v3-prediction.md`
+
+```bash
+export KXBTC15M_V3_STATE_DIR="${KXBTC15M_V3_STATE_DIR:-$PWD/var/v3}"
+./kxbtc15m v3-inventory --state-dir "$KXBTC15M_V3_STATE_DIR"
+./kxbtc15m v3-evaluate  --state-dir "$KXBTC15M_V3_STATE_DIR"   # holdout used once; lock.json freezes λ
+./kxbtc15m v3-screen    --state-dir "$KXBTC15M_V3_STATE_DIR"
+python3 -m http.server 43147 --bind 127.0.0.1 --directory "$KXBTC15M_V3_STATE_DIR"
+# then open http://127.0.0.1:43147/results.html
+```
+
+`v3-*` refuse `--state-dir` pointing at the baseline or open-exit books. Results are `historical_replay` under `prior_print_after_settlement_ts`. The 80–90% line on the screen is an aspiration, not a pass condition. Do not retune on the holdout.
 
 ## Tests
 
@@ -191,6 +212,7 @@ Covered: official fees and reserved exit leftover; $1 / $5 / inventory / cash; d
 
 ```
 src/kxbtc15m/            # stdlib package
+src/kxbtc15m/v3/         # Phase 1 replay predictor (no orders)
 src/kxbtc15m/openexit/   # second strategy (does not import cycle)
 tests/
 docs/superpowers/        # approved specs + plans

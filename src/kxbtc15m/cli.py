@@ -47,6 +47,9 @@ def _parser() -> argparse.ArgumentParser:
     watch.add_argument("--interval", type=int, default=20)
     report = sub.add_parser("report", help="15-minute compare (read-only). Does not create the baseline ledger.", parents=[common])
     report.add_argument("--baseline-state-dir", help="Directory that already holds the original ledger.sqlite")
+    sub.add_parser("v3-inventory", help="V3: page public settled KXBTC15M (GET only) into an isolated dir.", parents=[common])
+    sub.add_parser("v3-evaluate", help="V3: replay fit on train/val, lock, one holdout pass.", parents=[common])
+    sub.add_parser("v3-screen", help="V3: write local read-only results.html.", parents=[common])
     return parser
 
 
@@ -114,8 +117,42 @@ def _report(args) -> int:
     return 0
 
 
+def _v3_dir(args) -> Path:
+    from kxbtc15m.v3.paths import assert_safe_v3_dir
+
+    chosen = args.state_dir or os.environ.get("KXBTC15M_V3_STATE_DIR") or str(Path("var/v3"))
+    return assert_safe_v3_dir(chosen)
+
+
+def _v3(args) -> int:
+    from kxbtc15m.v3.pipeline import run_evaluate_cached, run_inventory, run_screen
+
+    state = _v3_dir(args)
+    api_base = args.api_base or os.environ.get("KXBTC15M_API_BASE") or DEFAULT_API_BASE
+    if args.command == "v3-inventory":
+        report = run_inventory(state, api_base)
+        sys.stdout.write(json.dumps(report, indent=2, default=str) + "\n")
+        return 0
+    if args.command == "v3-evaluate":
+        metrics = run_evaluate_cached(state)
+        sys.stdout.write(json.dumps({
+            "run_generated_at": metrics.get("run_generated_at"),
+            "n_holdout": metrics.get("n_holdout"),
+            "holdout_A_accuracy": (metrics.get("holdout") or {}).get("A_logistic", {}).get("accuracy"),
+            "availability": metrics.get("availability"),
+        }, indent=2) + "\n")
+        return 0
+    if args.command == "v3-screen":
+        path = run_screen(state)
+        sys.stdout.write(str(path) + "\n")
+        return 0
+    raise RuntimeError(args.command)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if str(args.command).startswith("v3-"):
+        return _v3(args)
     if args.command == "run":
         return _run_openexit(args)
     if args.command == "watch":
