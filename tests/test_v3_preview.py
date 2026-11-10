@@ -16,7 +16,7 @@ def test_elapsed_offset_clamps_to_grid():
         "close_time": "2026-11-10T07:30:00Z",
     }
     now = datetime(2026, 11, 10, 7, 14, tzinfo=timezone.utc)
-    assert _elapsed_offset(market, now) == 0
+    assert _elapsed_offset(market, now) == -60
     now = datetime(2026, 11, 10, 7, 20, tzinfo=timezone.utc)
     assert _elapsed_offset(market, now) == 300
     now = datetime(2026, 11, 10, 7, 29, tzinfo=timezone.utc)

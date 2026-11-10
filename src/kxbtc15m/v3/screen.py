@@ -39,7 +39,18 @@ def render_html(metrics: dict | None, predictions: list[dict] | None = None) -> 
     a = hold.get("A_logistic") or {}
     aspiration = metrics.get("aspiration") or {"low": 0.8, "high": 0.9}
     live_rows = [r for r in (predictions or []) if r.get("availability") == "observed_live" and not r.get("skip_reason")]
-    if live_rows:
+    live_from_preview = ((metrics.get("preview") or {}).get("current") or {})
+    if live_from_preview.get("ticker"):
+        live_panel = f"""
+        <div class="panel live">
+          <h2>Current market (observed live)</h2>
+          <p>{html.escape(str(live_from_preview.get('ticker')))} · offset {html.escape(str(live_from_preview.get('decision_offset_s')))}s · {html.escape(str(live_from_preview.get('family')))}</p>
+          <p>Start S<sub>t</sub> {_num(live_from_preview.get('S_t'))} · Predicted end {_num(live_from_preview.get('forecast_end'))}
+             · Predicted <strong>{html.escape(str(live_from_preview.get('pred_yes') or '—').upper())}</strong>
+             · p_yes {_num(live_from_preview.get('p_yes'), 3)}</p>
+          <p class="tiny">observation_at {html.escape(str(live_from_preview.get('observation_at')))} · prediction_asof {html.escape(str(live_from_preview.get('prediction_asof')))}</p>
+        </div>"""
+    elif live_rows:
         latest = live_rows[-1]
         live_panel = f"""
         <div class="panel live">
@@ -50,7 +61,7 @@ def render_html(metrics: dict | None, predictions: list[dict] | None = None) -> 
         live_panel = """
         <div class="panel live">
           <h2>Current market (observed live)</h2>
-          <p><strong>unavailable</strong> — no observed-live snapshot with observation_at ≤ t*. Replay numbers below are not live.</p>
+          <p><strong>unavailable</strong> — no observed-live snapshot with observation_at ≤ t*. Replay numbers below are not live. Run <code>v3-preview</code>.</p>
         </div>"""
     preview = (metrics.get("preview") or {}).get("next") or (metrics.get("preview") or {}).get("current")
     nxt = (metrics.get("preview") or {}).get("next")

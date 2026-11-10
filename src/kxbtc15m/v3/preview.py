@@ -62,7 +62,8 @@ def _elapsed_offset(market: dict, now: datetime) -> int:
     open_t = parse_utc(market["open_time"])
     close_t = parse_utc(market["close_time"])
     if now <= open_t:
-        return PREOPEN_OFFSET
+        # Seconds before open (negative). Features use period end ≤ now, not the future open.
+        return int((now - open_t).total_seconds())
     elapsed = (now - open_t).total_seconds()
     legal = [0, 30, 60, 120, 300, 420, 600, 720, 840]
     chosen = 0
@@ -178,11 +179,12 @@ def build_preview_bundle(
         current_card["card"] = "current"
     next_card = None
     if snap["next"]:
+        next_off = _elapsed_offset(snap["next"], now)
         next_card = forecast_market(
             snap["next"],
             bars,
             settled,
-            PREOPEN_OFFSET,
+            next_off,
             fit_preopen,
             family_preopen,
             snap["next_observation_at"],
