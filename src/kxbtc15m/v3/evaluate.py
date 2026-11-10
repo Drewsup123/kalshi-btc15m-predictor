@@ -5,15 +5,15 @@ from __future__ import annotations
 import csv
 import json
 import math
-from datetime import datetime, timezone
+from bisect import bisect_right
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
 
 from kxbtc15m.clock import parse_utc, iso_utc
 from kxbtc15m.v3 import MODEL_VERSION, FEATURE_SPEC, REPLAY_ASSUMPTION, KNN_K
-from kxbtc15m.v3.asof import last10, last10_majority, opening_ref
-from kxbtc15m.v3.candles import last_close
+from kxbtc15m.v3.asof import last10_majority
 from kxbtc15m.v3.clock import t_star, t_pub_sim, time_left_seconds
 from kxbtc15m.v3.controls import last_price_side, majority_side, no_change
 from kxbtc15m.v3.features import FEATURE_NAMES, build_features, vector_array
@@ -31,17 +31,70 @@ def _label_logret(market: dict) -> float:
     return math.log(expv / floor) if floor > 0 and expv > 0 else 0.0
 
 
+def _last10_from_eligible(eligible_oldest_first: list[dict]) -> dict:
+    window = list(reversed(eligible_oldest_first[-10:]))
+    logs = []
+    for m in window:
+        try:
+            floor = float(m["floor_strike"])
+            if floor > 0:
+                logs.append(math.log(float(m["expiration_value"]) / floor))
+        except (TypeError, ValueError, KeyError):
+            continue
+    yes = sum(1 for m in window if str(m.get("result")).lower() == "yes")
+    no = sum(1 for m in window if str(m.get("result")).lower() == "no")
+    median = sorted(logs)[len(logs) // 2] if logs else 0.0
+    return {
+        "used": len(window),
+        "yes": yes,
+        "no": no,
+        "median_logret": median,
+        "tickers": [str(m.get("ticker") or "") for m in window],
+    }
+
+
 def build_replay_rows(markets: list[dict], bars: list[dict]) -> list[dict]:
     ordered = sorted(markets, key=lambda m: parse_utc(m["close_time"]))
+    bars_sorted = []
+    for bar in bars:
+        item = dict(bar)
+        start = item["start"]
+        item["start"] = start if hasattr(start, "tzinfo") else parse_utc(start)
+        bars_sorted.append(item)
+    bars_sorted.sort(key=lambda b: b["start"])
+    starts = [b["start"] for b in bars_sorted]
+
+    settled = []
+    for m in ordered:
+        if not m.get("settlement_ts"):
+            continue
+        if str(m.get("result") or "").strip().lower() not in {"yes", "no"}:
+            continue
+        settled.append((parse_utc(m["settlement_ts"]), m))
+    settled.sort(key=lambda x: x[0])
+    sett_times = [t for t, _ in settled]
+
     rows = []
-    for i, market in enumerate(ordered):
+    for market in ordered:
         open_t = parse_utc(market["open_time"])
         ts = t_star(open_t)
-        priors = [m for j, m in enumerate(ordered) if j != i]
-        s_t, s_src, skip_s = opening_ref(market, priors, ts, availability="historical_replay")
-        r_t, r_end = last_close(bars, ts)
-        l10 = last10(priors, ts, availability="historical_replay")
-        vec, meta, skip_f = build_features(bars, l10, ts)
+        idx = bisect_right(sett_times, ts)
+        eligible = [m for _, m in settled[:idx] if m.get("ticker") != market.get("ticker")]
+        if not eligible:
+            s_t, s_src, skip_s = None, None, "insufficient_opening_ref"
+        else:
+            try:
+                s_t = float(eligible[-1]["expiration_value"])
+                s_src, skip_s = "prior_expiration_value", None
+            except (TypeError, ValueError, KeyError):
+                s_t, s_src, skip_s = None, None, "insufficient_opening_ref"
+        l10 = _last10_from_eligible(eligible)
+        cutoff = ts - timedelta(seconds=60)
+        bi = bisect_right(starts, cutoff)
+        window = bars_sorted[max(0, bi - 120) : bi]
+        r_t = float(window[-1]["close"]) if window else None
+        r_end = (window[-1]["start"] + timedelta(seconds=60)) if window else None
+        vec, meta, skip_f = build_features(window, l10, ts)
         skip = skip_s or skip_f
         if r_t is None and skip is None:
             skip = "missing_underlying"
@@ -149,7 +202,7 @@ def _fit_pick(train: list[dict], val: list[dict]) -> dict:
     }
 
 
-def _apply(rows: list[dict], fit: dict) -> list[dict]:
+def _apply(rows: list[dict], fit: dict, knn: bool = True) -> list[dict]:
     out = []
     for r in rows:
         item = dict(r)
@@ -171,7 +224,10 @@ def _apply(rows: list[dict], fit: dict) -> list[dict]:
         yhat = float(fit["ridge"].predict(xs.reshape(1, -1))[0])
         s_t = float(r["S_t"])
         forecast_end = s_t * math.exp(yhat)
-        knn_pred, knn_p, knn_y = knn_predict(xs, t_star(r["open_dt"]), fit["library"], k=KNN_K)
+        if knn:
+            knn_pred, knn_p, knn_y = knn_predict(xs, t_star(r["open_dt"]), fit["library"], k=KNN_K)
+        else:
+            knn_pred, knn_p, knn_y = None, None, None
         l10_side = last10_majority(r["last10"])
         nc_side, nc_y = no_change()
         item["pred_yes"] = "yes" if p >= 0.5 else "no"
@@ -223,7 +279,7 @@ def _walkforward_diagnostic(rows: list[dict], l2_logistic: float, l2_ridge: floa
         if len(tr) < 20 or len(te) < 5:
             continue
         fit = _fit_locked(tr, l2_logistic, l2_ridge)
-        pred = _apply(te, fit)
+        pred = _apply(te, fit, knn=False)
         table = score_table(pred)
         if table["accuracy"] is not None:
             accs.append(table["accuracy"])
