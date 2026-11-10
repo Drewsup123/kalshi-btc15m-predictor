@@ -50,6 +50,8 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_parser("v3-inventory", help="V3: page public settled KXBTC15M (GET only) into an isolated dir.", parents=[common])
     sub.add_parser("v3-evaluate", help="V3: replay fit on train/val, lock, one holdout pass.", parents=[common])
     sub.add_parser("v3-screen", help="V3: write local read-only results.html.", parents=[common])
+    sub.add_parser("v3-sweep", help="V3: pre-registered strategy sweep (train/val select, then holdout).", parents=[common])
+    sub.add_parser("v3-preview", help="V3: refresh current + next-market cards via public GETs.", parents=[common])
     return parser
 
 
@@ -125,7 +127,7 @@ def _v3_dir(args) -> Path:
 
 
 def _v3(args) -> int:
-    from kxbtc15m.v3.pipeline import run_evaluate_cached, run_inventory, run_screen
+    from kxbtc15m.v3.pipeline import run_evaluate_cached, run_inventory, run_preview, run_screen, run_sweep_cached
 
     state = _v3_dir(args)
     api_base = args.api_base or os.environ.get("KXBTC15M_API_BASE") or DEFAULT_API_BASE
@@ -145,6 +147,28 @@ def _v3(args) -> int:
     if args.command == "v3-screen":
         path = run_screen(state)
         sys.stdout.write(str(path) + "\n")
+        return 0
+    if args.command == "v3-sweep":
+        summary = run_sweep_cached(state)
+        chosen = ((summary.get("selection") or {}).get("chosen") or {})
+        sys.stdout.write(json.dumps({
+            "holdout_label": summary.get("holdout_label"),
+            "n_fresh": summary.get("n_fresh"),
+            "n_variants_tried": summary.get("n_variants_tried"),
+            "chosen": chosen.get("id"),
+            "chosen_accuracy": chosen.get("accuracy"),
+            "chosen_coverage": chosen.get("coverage"),
+        }, indent=2, default=str) + "\n")
+        return 0
+    if args.command == "v3-preview":
+        bundle = run_preview(state, api_base)
+        sys.stdout.write(json.dumps({
+            "now": bundle.get("now"),
+            "current": (bundle.get("current") or {}).get("ticker"),
+            "next": (bundle.get("next") or {}).get("ticker"),
+            "next_pred": (bundle.get("next") or {}).get("pred_yes"),
+            "label": (bundle.get("next") or {}).get("label"),
+        }, indent=2, default=str) + "\n")
         return 0
     raise RuntimeError(args.command)
 

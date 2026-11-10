@@ -12,9 +12,10 @@ from pathlib import Path
 import numpy as np
 
 from kxbtc15m.clock import parse_utc, iso_utc
-from kxbtc15m.v3 import MODEL_VERSION, FEATURE_SPEC, REPLAY_ASSUMPTION, KNN_K
+from kxbtc15m.v3 import MODEL_VERSION, FEATURE_SPEC, REPLAY_ASSUMPTION, KNN_K, LOOKBACK_BARS
 from kxbtc15m.v3.asof import last10_majority
-from kxbtc15m.v3.clock import t_star, t_pub_sim, time_left_seconds
+from kxbtc15m.v3.brownian import p_yes_brownian, realized_sigma
+from kxbtc15m.v3.clock import decision_time, t_star, t_pub_sim, time_left_seconds
 from kxbtc15m.v3.controls import last_price_side, majority_side, no_change
 from kxbtc15m.v3.features import FEATURE_NAMES, build_features, vector_array
 from kxbtc15m.v3.lock import lock_payload, read_lock, write_lock
@@ -53,7 +54,7 @@ def _last10_from_eligible(eligible_oldest_first: list[dict]) -> dict:
     }
 
 
-def build_replay_rows(markets: list[dict], bars: list[dict]) -> list[dict]:
+def build_replay_rows(markets: list[dict], bars: list[dict], offset_seconds: float = 30) -> list[dict]:
     ordered = sorted(markets, key=lambda m: parse_utc(m["close_time"]))
     bars_sorted = []
     for bar in bars:
@@ -77,7 +78,8 @@ def build_replay_rows(markets: list[dict], bars: list[dict]) -> list[dict]:
     rows = []
     for market in ordered:
         open_t = parse_utc(market["open_time"])
-        ts = t_star(open_t)
+        close_t = parse_utc(market["close_time"])
+        ts = decision_time(open_t, offset_seconds)
         idx = bisect_right(sett_times, ts)
         eligible = [m for _, m in settled[:idx] if m.get("ticker") != market.get("ticker")]
         if not eligible:
@@ -91,21 +93,44 @@ def build_replay_rows(markets: list[dict], bars: list[dict]) -> list[dict]:
         l10 = _last10_from_eligible(eligible)
         cutoff = ts - timedelta(seconds=60)
         bi = bisect_right(starts, cutoff)
-        window = bars_sorted[max(0, bi - 120) : bi]
+        need = LOOKBACK_BARS + 24 + max(0, int(offset_seconds) // 60)
+        window = bars_sorted[max(0, bi - need) : bi]
         r_t = float(window[-1]["close"]) if window else None
         r_end = (window[-1]["start"] + timedelta(seconds=60)) if window else None
         vec, meta, skip_f = build_features(window, l10, ts)
         skip = skip_s or skip_f
         if r_t is None and skip is None:
             skip = "missing_underlying"
-        pub = t_pub_sim(open_t, ts)
+        if ts >= close_t and skip is None:
+            skip = "after_close"
+        tau_minutes = max((close_t - ts).total_seconds() / 60.0, 1.0 / 60.0)
+        closes = [float(b["close"]) for b in window]
+        sig16 = realized_sigma(closes, 16)
+        sig96 = realized_sigma(closes, 96)
+        p16, z16 = p_yes_brownian(r_t, s_t, sig16, tau_minutes)
+        p96, z96 = p_yes_brownian(r_t, s_t, sig96, tau_minutes)
+        if abs(float(offset_seconds) - 30) < 1e-9:
+            pub = t_pub_sim(open_t, ts)
+            pub_s = iso_utc(pub) if pub else None
+            lead = "initial"
+        elif float(offset_seconds) <= 0:
+            pub_s = iso_utc(ts)
+            lead = "preopen"
+        else:
+            pub_s = iso_utc(ts)
+            lead = f"tplus_{int(offset_seconds)}"
+        atr16 = None
+        if vec:
+            atr16 = vec.get("atr16_pct")
+        logret16 = vec.get("logret_16") if vec else None
         row = {
             "ticker": market.get("ticker"),
             "open_time": iso_utc(open_t),
             "close_time": iso_utc(market["close_time"]),
             "open_dt": open_t,
             "prediction_asof": iso_utc(ts),
-            "t_pub_sim": iso_utc(pub) if pub else None,
+            "t_pub_sim": pub_s,
+            "decision_offset_s": int(offset_seconds),
             "availability": "historical_replay",
             "replay_assumption": REPLAY_ASSUMPTION,
             "S_t": s_t,
@@ -116,13 +141,22 @@ def build_replay_rows(markets: list[dict], bars: list[dict]) -> list[dict]:
             "expiration_value": float(market["expiration_value"]) if market.get("expiration_value") not in (None, "") else None,
             "result": str(market.get("result") or "").lower(),
             "settlement_ts": market.get("settlement_ts"),
-            "y_log": _label_logret(market) if skip is None else None,
+            "y_log": (_label_logret(market) if skip is None and market.get("expiration_value") not in (None, "") and market.get("floor_strike") not in (None, "") else None),
             "skip_reason": skip,
-            "lead_bucket": "initial",
+            "lead_bucket": lead,
             "model_version": MODEL_VERSION,
             "feature_spec_hash": FEATURE_SPEC,
             "observation_at": None,
-            "time_left": time_left_seconds(open_t, market["close_time"]),
+            "time_left": (close_t - ts).total_seconds(),
+            "tau_minutes": tau_minutes,
+            "sigma_16": sig16,
+            "sigma_96": sig96,
+            "z_16": z16,
+            "z_96": z96,
+            "p_brownian_16": p16,
+            "p_brownian_96": p96,
+            "atr16": atr16,
+            "logret_16": logret16,
             "last10": l10,
             "x": vector_array(vec) if vec else None,
             "meta": meta,

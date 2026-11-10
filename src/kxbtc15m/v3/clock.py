@@ -11,6 +11,11 @@ def t_star(open_time: datetime | str) -> datetime:
     return parse_utc(open_time) + timedelta(seconds=30)
 
 
+def decision_time(open_time: datetime | str, offset_seconds: float) -> datetime:
+    """Frozen decision instant. offset_seconds=30 is Phase-1 t*; 0 is pre-open."""
+    return parse_utc(open_time) + timedelta(seconds=float(offset_seconds))
+
+
 def deadline(open_time: datetime | str) -> datetime:
     return parse_utc(open_time) + timedelta(seconds=60)
 

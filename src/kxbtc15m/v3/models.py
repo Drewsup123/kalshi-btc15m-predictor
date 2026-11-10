@@ -99,3 +99,25 @@ def knn_predict(
     p_yes = sum(votes) / len(votes)
     yhat = float(np.median([p["y_log"] for p in picked]))
     return pred, p_yes, yhat
+
+
+def knn_predict_matrix(
+    x: np.ndarray,
+    t_ts: float,
+    X: np.ndarray,
+    opens: np.ndarray,
+    labels: np.ndarray,
+    ylog: np.ndarray,
+    k: int = KNN_K,
+    lo_seconds: float = LOOKBACK_BARS * 60,
+) -> tuple[int | None, float | None, float | None]:
+    mask = ~((opens > (t_ts - lo_seconds)) & (opens <= t_ts))
+    if not np.any(mask):
+        return None, None, None
+    d = np.linalg.norm(X[mask] - np.asarray(x, dtype=float), axis=1)
+    take = min(k, int(mask.sum()))
+    idx = np.argpartition(d, take - 1)[:take]
+    votes = labels[mask][idx]
+    pred = 1 if votes.sum() > len(votes) / 2 else 0
+    yhat = float(np.median(ylog[mask][idx]))
+    return int(pred), float(votes.mean()), yhat

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from kxbtc15m.clock import parse_utc
 from kxbtc15m.v3.candles import parse_exchange_row
 from kxbtc15m.v3.client import PublicGetClient
 from kxbtc15m.v3.evaluate import build_replay_rows, evaluate_rows
+from kxbtc15m.v3.lock import read_lock
 from kxbtc15m.v3.fetch import (
     DEFAULT_API_BASE,
     fetch_coinbase_1m,
@@ -88,3 +90,103 @@ def run_screen(state_dir: Path) -> Path:
     state_dir = assert_safe_v3_dir(state_dir)
     state_dir.mkdir(parents=True, exist_ok=True)
     return write_screen(state_dir)
+
+
+def run_sweep_cached(state_dir: Path) -> dict:
+    from kxbtc15m.v3.sweep import run_sweep
+
+    state_dir = assert_safe_v3_dir(state_dir)
+    markets = json.loads((state_dir / "markets.json").read_text(encoding="utf-8"))
+    bars = _load_bars(state_dir)
+    inv = {}
+    if (state_dir / "inventory.json").is_file():
+        inv = json.loads((state_dir / "inventory.json").read_text(encoding="utf-8"))
+    dataset_asof = inv.get("dataset_asof") or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    lock_asof = dataset_asof
+    lock_path = state_dir / "lock.json"
+    if lock_path.is_file():
+        lock_asof = read_lock(lock_path).get("dataset_asof") or dataset_asof
+    return run_sweep(markets, bars, state_dir, dataset_asof, lock_dataset_asof=lock_asof)
+
+
+def _sample_implied_trades(state_dir: Path, markets: list[dict], api_base: str, every: int = 25) -> int:
+    from kxbtc15m.v3.client import PublicGetClient
+    from kxbtc15m.v3.implied import fetch_ticker_trades
+
+    client = PublicGetClient()
+    n = 0
+    for i, market in enumerate(markets):
+        if i % every != 0:
+            continue
+        ticker = market.get("ticker")
+        if not ticker:
+            continue
+        try:
+            fetch_ticker_trades(client, ticker, state_dir, api_base=api_base)
+            n += 1
+        except Exception:
+            continue
+    return n
+
+
+def run_preview(state_dir: Path, api_base: str) -> dict:
+    from kxbtc15m.v3.client import PublicGetClient
+    from kxbtc15m.v3.fetch import fetch_coinbase_1m
+    from kxbtc15m.v3.inventory import score_universe
+    from kxbtc15m.v3.preview import build_preview_bundle
+    from kxbtc15m.v3.split import chronological_split as _cs
+    from kxbtc15m.v3.sweep import PREOPEN_OFFSET, _fit_models
+
+    state_dir = assert_safe_v3_dir(state_dir)
+    state_dir.mkdir(parents=True, exist_ok=True)
+    markets = json.loads((state_dir / "markets.json").read_text(encoding="utf-8"))
+    bars = _load_bars(state_dir)
+    client = PublicGetClient()
+    now = datetime.now(timezone.utc)
+    recent = fetch_coinbase_1m(client, now - timedelta(hours=6), now + timedelta(minutes=1), state_dir)
+    by_ts = {int(b["start"].timestamp()): b for b in bars}
+    for b in recent:
+        by_ts[int(b["start"].timestamp())] = b
+    bars = [by_ts[k] for k in sorted(by_ts)]
+    live_settled = client.kalshi(api_base, "/markets", {"series_ticker": "KXBTC15M", "status": "settled", "limit": "50"})
+    extra, _ = score_universe(live_settled.get("markets") or [])
+    seen = {m.get("ticker") for m in markets}
+    for row in extra:
+        if row.get("ticker") not in seen:
+            markets.append(row)
+            seen.add(row.get("ticker"))
+    rows0 = build_replay_rows(markets, bars, offset_seconds=PREOPEN_OFFSET)
+    train, _val, _ho = _cs(rows0)
+    fit0 = _fit_models(train)
+    rows30 = build_replay_rows(markets, bars, offset_seconds=30)
+    train30, _, _ = _cs(rows30)
+    fit30 = _fit_models(train30)
+    family_pre = "A_logistic_z"
+    family_win = "D_brownian_16"
+    sel_path = state_dir / "sweep" / "selection.json"
+    if sel_path.is_file():
+        sel = json.loads(sel_path.read_text(encoding="utf-8"))
+        chosen = (sel.get("selection") or {}).get("chosen") or {}
+        fam = chosen.get("family") or chosen.get("id") or ""
+        if isinstance(fam, str) and fam.startswith("S_"):
+            fam = fam.split("_")[1] if "_" in fam else "D_brownian_16"
+        if chosen.get("offset_s") == 0:
+            family_pre = chosen.get("family") or family_pre
+        if chosen.get("family") in {"D_brownian_16", "D_brownian_96", "C_lastprice", "A_logistic", "A_logistic_z", "E_regime_trend", "F_vote"}:
+            family_win = chosen.get("family")
+        elif "brownian" in str(fam):
+            family_win = "D_brownian_16"
+    bundle = build_preview_bundle(
+        client,
+        bars,
+        markets,
+        fit0,
+        fit30,
+        family_pre,
+        family_win,
+        api_base=api_base,
+    )
+    bundle["run_generated_at"] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    (state_dir / "preview.json").write_text(json.dumps(bundle, indent=2, default=str) + "\n", encoding="utf-8")
+    write_screen(state_dir)
+    return bundle
