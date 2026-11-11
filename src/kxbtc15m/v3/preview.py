@@ -20,6 +20,23 @@ def denver_stamp(dt) -> str:
     return parse_utc(dt).astimezone(DENVER).strftime("%Y-%m-%d %H:%M %Z")
 
 
+def select_current_market(opened: list[dict], now: datetime) -> dict | None:
+    """Pick the latest open market whose window contains now when possible."""
+    if not opened:
+        return None
+    live = []
+    for m in opened:
+        try:
+            open_t = parse_utc(m["open_time"])
+            close_t = parse_utc(m["close_time"])
+        except Exception:
+            continue
+        if open_t <= now < close_t:
+            live.append(m)
+    pool = live or opened
+    return sorted(pool, key=lambda m: parse_utc(m["open_time"]))[-1]
+
+
 def _observation_get(client: PublicGetClient, url: str):
     started = datetime.now(timezone.utc)
     payload = client.get_json(url)
@@ -35,9 +52,7 @@ def fetch_open_and_next(client: PublicGetClient, api_base: str = DEFAULT_API_BAS
     now = datetime.now(timezone.utc)
     opened = unwrap_markets(open_payload)
     unopened = unwrap_markets(next_payload)
-    current = None
-    if opened:
-        current = sorted(opened, key=lambda m: parse_utc(m["open_time"]))[-1]
+    current = select_current_market(opened, now)
     upcoming = [m for m in unopened if parse_utc(m.get("open_time") or "1970-01-01T00:00:00Z") >= now]
     nxt = sorted(upcoming, key=lambda m: parse_utc(m["open_time"]))[0] if upcoming else None
     return {
@@ -123,6 +138,18 @@ def forecast_market(
             row["skip_reason"] = None
     pred_rows = apply_family([row], family, fit)
     pred = pred_rows[0]
+    logret_1 = None
+    if row.get("x"):
+        try:
+            logret_1 = float(row["x"][0])
+        except (TypeError, ValueError, IndexError):
+            logret_1 = None
+    from kxbtc15m.v3.asof import last10_majority
+
+    last10_side = last10_majority(row.get("last10") or {})
+    close_t = parse_utc(market["close_time"])
+    now_obs = parse_utc(observation_at)
+    time_left_s = max(0.0, (close_t - now_obs).total_seconds())
     return {
         "ticker": market.get("ticker"),
         "status": market.get("status"),
@@ -145,6 +172,10 @@ def forecast_market(
         "label": "PREVIEW / pre-open" if t_offset <= 0 else "observed_live",
         "calibration": "uncalibrated",
         "live_note": row.get("live_note"),
+        "logret_1": logret_1,
+        "last10_side": last10_side,
+        "time_left_s": time_left_s,
+        "tau_minutes": row.get("tau_minutes"),
     }
 
 

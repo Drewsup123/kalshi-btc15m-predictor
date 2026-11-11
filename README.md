@@ -15,6 +15,7 @@ An older paper-money simulator also lives in this tree (`cycle` / `watch`). It i
 
 - Python 3.11+
 - `numpy` (V3 models)
+- `tzdata` (IANA zoneinfo; **required on Windows**, harmless elsewhere — without it `America/Denver` fails under `zoneinfo`)
 - Optional: `scikit-learn` (HistGradientBoosting in the strategy sweep; skipped if missing)
 
 No paid services. Generated state (`var/`, `*.sqlite`, candle/market caches) is gitignored.
@@ -24,13 +25,27 @@ No paid services. Generated state (`var/`, `*.sqlite`, candle/market caches) is 
 ```bash
 git clone https://github.com/Drewsup123/kalshi-btc15m-predictor.git
 cd kalshi-btc15m-predictor
-python3 -m pip install numpy
+python3 -m pip install numpy tzdata
 # optional, for the HGB sweep family only:
 python3 -m pip install scikit-learn
 chmod +x kxbtc15m
 ```
 
 Or run without installing the package: the `./kxbtc15m` launcher adds `src/` to `PYTHONPATH`.
+
+### Windows quick-start (PowerShell)
+
+```powershell
+cd $HOME\kalshi-btc15m-predictor
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install numpy tzdata
+# optional:
+.\.venv\Scripts\python.exe -m pip install scikit-learn
+.\.venv\Scripts\python.exe kxbtc15m v3-live --state-dir var\v3
+# open http://127.0.0.1:43147/results.html
+```
+
+`v3-live` refreshes public GETs every ~20s, rewrites `preview.json` / `results.html`, serves the state dir on `127.0.0.1:43147`, and appends frozen hero calls to `live_calls.jsonl` (scored when Kalshi settles).
 
 ## Tests
 
@@ -62,12 +77,27 @@ export KXBTC15M_V3_STATE_DIR="${KXBTC15M_V3_STATE_DIR:-$PWD/var/v3}"
 # 5) write results.html
 ./kxbtc15m v3-screen    --state-dir "$KXBTC15M_V3_STATE_DIR"
 
-# 6) local static view
-python3 -m http.server 43147 --bind 127.0.0.1 --directory "$KXBTC15M_V3_STATE_DIR"
+# 6) one-command live UI (refresh loop + local server on 127.0.0.1:43147)
+./kxbtc15m v3-live      --state-dir "$KXBTC15M_V3_STATE_DIR"
 # open http://127.0.0.1:43147/results.html
+
+# optional instead of v3-live: one-shot static view
+python3 -m http.server 43147 --bind 127.0.0.1 --directory "$KXBTC15M_V3_STATE_DIR"
 ```
 
-`v3-preview` and `v3-screen` do not place orders. Forecasts are frozen at a decision instant (`t*` = open+30s for Phase 1; later offsets in the sweep). Labels are official Kalshi `result` / `expiration_value`.
+`v3-preview`, `v3-screen`, and `v3-live` do not place orders. Forecasts are frozen at a decision instant (`t*` = open+30s for Phase 1; later offsets in the sweep). Labels are official Kalshi `result` / `expiration_value`.
+
+### Live hero confidence labels
+
+Call-side probability `p_call` = `p_yes` for UP, else `1 − p_yes`. Displayed as an integer percent.
+
+| Label | Rule |
+|---|---|
+| Low | confidence &lt; 55% |
+| Medium | 55% ≤ confidence &lt; 65% |
+| High | confidence ≥ 65% |
+
+The hero direction always comes from the classifier. A predicted end price is shown only when it agrees with that direction; otherwise it is hidden so last-price proxies cannot contradict the call. Historical backtest accuracy at the same family/offset is shown separately from the live track-record %.
 
 ## Honest results (already measured)
 
