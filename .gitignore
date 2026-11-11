@@ -3,8 +3,12 @@ __pycache__/
 .pytest_cache/
 .venv/
 venv/
+.env
+.env.*
 *.sqlite
 *.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
 var/
 state/
 uploads/
