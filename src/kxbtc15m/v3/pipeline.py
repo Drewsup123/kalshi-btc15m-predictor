@@ -186,7 +186,39 @@ def run_preview(state_dir: Path, api_base: str) -> dict:
         family_win,
         api_base=api_base,
     )
+    sweep_holdout = []
+    summary_path = state_dir / "sweep" / "summary.json"
+    if summary_path.is_file():
+        try:
+            sweep_holdout = json.loads(summary_path.read_text(encoding="utf-8")).get("holdout") or []
+        except json.JSONDecodeError:
+            sweep_holdout = []
+    from kxbtc15m.v3.hero import enrich_hero_card
+    from kxbtc15m.v3.live_track import attach_live_track, record_frozen_call
+
+    if bundle.get("current"):
+        bundle["current"] = enrich_hero_card(bundle["current"], sweep_holdout)
+    if bundle.get("next"):
+        bundle["next"] = enrich_hero_card(bundle["next"], sweep_holdout)
     bundle["run_generated_at"] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    bundle["stale"] = False
+    # Freeze live call when we have a classifier side (append-once).
+    cur = bundle.get("current") or {}
+    if cur.get("ticker") and cur.get("pred_yes") in {"yes", "no"}:
+        record_frozen_call(
+            state_dir,
+            {
+                "ticker": cur.get("ticker"),
+                "pred_yes": cur.get("pred_yes"),
+                "decision_offset_s": cur.get("decision_offset_s"),
+                "prediction_asof": cur.get("prediction_asof"),
+                "p_yes": cur.get("p_yes"),
+                "family": cur.get("family"),
+                "frozen_at": bundle["run_generated_at"],
+                "S_t": cur.get("S_t"),
+            },
+        )
+    bundle["live_track"] = attach_live_track(state_dir, markets, now=now)
     (state_dir / "preview.json").write_text(json.dumps(bundle, indent=2, default=str) + "\n", encoding="utf-8")
     write_screen(state_dir)
     return bundle

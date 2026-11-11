@@ -52,6 +52,14 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_parser("v3-screen", help="V3: write local read-only results.html.", parents=[common])
     sub.add_parser("v3-sweep", help="V3: pre-registered strategy sweep (train/val select, then holdout).", parents=[common])
     sub.add_parser("v3-preview", help="V3: refresh current + next-market cards via public GETs.", parents=[common])
+    live = sub.add_parser(
+        "v3-live",
+        help="V3: loop preview refresh + serve results.html on 127.0.0.1 (read-only).",
+        parents=[common],
+    )
+    live.add_argument("--interval", type=int, default=20, help="Refresh seconds (default 20).")
+    live.add_argument("--port", type=int, default=43147, help="Local bind port (default 43147).")
+    live.add_argument("--host", default="127.0.0.1", help="Bind host (default 127.0.0.1).")
     return parser
 
 
@@ -170,6 +178,16 @@ def _v3(args) -> int:
             "label": (bundle.get("next") or {}).get("label"),
         }, indent=2, default=str) + "\n")
         return 0
+    if args.command == "v3-live":
+        from kxbtc15m.v3.live import run_live
+
+        return run_live(
+            state,
+            api_base=api_base,
+            interval=getattr(args, "interval", 20),
+            host=getattr(args, "host", "127.0.0.1"),
+            port=getattr(args, "port", 43147),
+        )
     raise RuntimeError(args.command)
 
 
